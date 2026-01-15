@@ -13,6 +13,7 @@ BASE_DIR="$HOME/agent-os"
 PROFILES_DIR="$BASE_DIR/profiles"
 
 # Source common functions
+# shellcheck source=scripts/common-functions.sh
 source "$SCRIPT_DIR/common-functions.sh"
 
 # -----------------------------------------------------------------------------
@@ -69,9 +70,10 @@ get_profile_name() {
         echo "Example names: 'rails', 'python', 'react', 'wordpress'"
         echo ""
 
-        read -p "$(echo -e "${BLUE}Profile name: ${NC}")" profile_input
+        read -r -p "$(echo -e "${BLUE}Profile name: ${NC}")" profile_input
 
         # Normalize the name
+        PROFILE_NAME=
         PROFILE_NAME=$(normalize_name "$profile_input")
 
         if [[ -z "$PROFILE_NAME" ]]; then
@@ -96,7 +98,8 @@ get_profile_name() {
 # -----------------------------------------------------------------------------
 
 select_inheritance() {
-    local profiles=($(get_available_profiles))
+    local profiles
+    mapfile -t profiles < <(get_available_profiles)
 
     if [[ ${#profiles[@]} -eq 0 ]]; then
         print_warning "No existing profiles found to inherit from"
@@ -112,7 +115,7 @@ select_inheritance() {
         # Only one profile exists
         print_status "Should this profile inherit from the '${profiles[0]}' profile?"
         echo ""
-        read -p "$(echo -e "${BLUE}Inherit from '${profiles[0]}'? (y/n): ${NC}")" inherit_choice
+        read -r -p "$(echo -e "${BLUE}Inherit from '${profiles[0]}'? (y/n): ${NC}")" inherit_choice
 
         if [[ "$inherit_choice" == "y" ]] || [[ "$inherit_choice" == "Y" ]]; then
             INHERIT_FROM="${profiles[0]}"
@@ -134,7 +137,7 @@ select_inheritance() {
         done
 
         echo ""
-        read -p "$(echo -e "${BLUE}Enter selection (1-$((${#profiles[@]}+1))): ${NC}")" selection
+        read -r -p "$(echo -e "${BLUE}Enter selection (1-$((${#profiles[@]}+1))): ${NC}")" selection
 
         if [[ "$selection" == "1" ]]; then
             INHERIT_FROM=""
@@ -160,7 +163,8 @@ select_copy_source() {
         return
     fi
 
-    local profiles=($(get_available_profiles))
+    local profiles
+    mapfile -t profiles < <(get_available_profiles)
 
     if [[ ${#profiles[@]} -eq 0 ]]; then
         print_warning "No existing profiles found to copy from"
@@ -176,7 +180,7 @@ select_copy_source() {
         # Only one profile exists
         print_status "Do you want to copy the contents from the '${profiles[0]}' profile?"
         echo ""
-        read -p "$(echo -e "${BLUE}Copy from '${profiles[0]}'? (y/n): ${NC}")" copy_choice
+        read -r -p "$(echo -e "${BLUE}Copy from '${profiles[0]}'? (y/n): ${NC}")" copy_choice
 
         if [[ "$copy_choice" == "y" ]] || [[ "$copy_choice" == "Y" ]]; then
             COPY_FROM="${profiles[0]}"
@@ -198,7 +202,7 @@ select_copy_source() {
         done
 
         echo ""
-        read -p "$(echo -e "${BLUE}Enter selection (1-$((${#profiles[@]}+1))): ${NC}")" selection
+        read -r -p "$(echo -e "${BLUE}Enter selection (1-$((${#profiles[@]}+1))): ${NC}")" selection
 
         if [[ "$selection" == "1" ]]; then
             COPY_FROM=""

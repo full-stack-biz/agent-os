@@ -10,7 +10,6 @@ RED='\033[38;2;255;32;86m'
 GREEN='\033[38;2;0;234;179m'
 YELLOW='\033[38;2;255;185;0m'
 BLUE='\033[38;2;0;208;255m'
-PURPLE='\033[38;2;142;81;255m'
 NC='\033[0m' # No Color
 
 # -----------------------------------------------------------------------------
@@ -27,7 +26,7 @@ NC='\033[0m' # No Color
 print_color() {
     local color=$1
     shift
-    echo -e "${color}$@${NC}"
+    echo -e "${color}$*${NC}"
 }
 
 # Print section header
@@ -86,8 +85,10 @@ normalize_yaml_line() {
 # Get indentation level (counts spaces/tabs at beginning)
 get_indent_level() {
     local line="$1"
-    local normalized=$(echo "$line" | sed 's/\t/    /g')
-    local spaces=$(echo "$normalized" | sed 's/[^ ].*//')
+    local normalized
+    normalized="${line//$'\t'/    }"
+    local spaces
+    spaces="${normalized%%[^ ]*}"
     echo "${#spaces}"
 }
 
@@ -104,7 +105,8 @@ get_yaml_value() {
     fi
 
     # Look for the key with flexible spacing and handle quotes
-    local value=$(awk -v key="$key" '
+    local value
+    value=$(awk -v key="$key" '
         BEGIN { found=0 }
         {
             # Normalize tabs to spaces
@@ -315,7 +317,7 @@ get_profile_file() {
             # Check if this file is excluded (even in current profile)
             if [[ -f "$profile_config" ]]; then
                 local excluded="false"
-                while read pattern; do
+                while read -r pattern; do
                     if [[ -n "$pattern" ]] && match_pattern "$file_path" "$pattern"; then
                         excluded="true"
                         break
@@ -338,7 +340,8 @@ get_profile_file() {
             return
         fi
 
-        local inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
+        local inherits_from
+        inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
 
         if [[ "$inherits_from" == "false" || -z "$inherits_from" ]]; then
             echo ""
@@ -347,7 +350,7 @@ get_profile_file() {
 
         # Check if file is excluded during inheritance
         local excluded="false"
-        while read pattern; do
+        while read -r pattern; do
             if [[ -n "$pattern" ]] && match_pattern "$file_path" "$pattern"; then
                 excluded="true"
                 break
@@ -386,12 +389,14 @@ get_profile_files() {
 
         # Add exclusion patterns from this profile
         if [[ -f "$profile_config" ]]; then
-            local patterns=$(get_yaml_array "$profile_config" "exclude_inherited_files")
+            local patterns
+            patterns=$(get_yaml_array "$profile_config" "exclude_inherited_files")
             if [[ -n "$patterns" ]]; then
                 excluded_patterns="$excluded_patterns"$'\n'"$patterns"
             fi
 
-            local inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
+            local inherits_from
+            inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
             if [[ "$inherits_from" == "false" || -z "$inherits_from" ]]; then
                 break
             fi
@@ -417,7 +422,8 @@ get_profile_files() {
         local profile_config="$profile_dir/profile-config.yml"
 
         if [[ -f "$profile_config" ]]; then
-            local inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
+            local inherits_from
+            inherits_from=$(get_yaml_value "$profile_config" "inherits_from" "default")
             if [[ "$inherits_from" == "false" || -z "$inherits_from" ]]; then
                 break
             fi
@@ -437,12 +443,12 @@ get_profile_files() {
         fi
 
         if [[ -d "$search_dir" ]]; then
-            find "$search_dir" -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) 2>/dev/null | while read file; do
-                relative_path="${file#$profile_dir/}"
+            find "$search_dir" -type f \( -name "*.md" -o -name "*.yml" -o -name "*.yaml" \) 2>/dev/null | while read -r file; do
+                relative_path="${file#"$profile_dir"/}"
 
                 # Check if excluded
                 excluded="false"
-                while read pattern; do
+                while read -r pattern; do
                     if [[ -n "$pattern" ]] && match_pattern "$relative_path" "$pattern"; then
                         excluded="true"
                         break
@@ -466,7 +472,8 @@ match_pattern() {
     local pattern=$2
 
     # Convert pattern to regex
-    local regex=$(echo "$pattern" | sed 's/\*/[^\/]*/g' | sed 's/\*\*/.**/g')
+    local regex
+    regex=$(echo "$pattern" | sed 's/\*/[^\/]*/g' | sed 's/\*\*/.**/g')
 
     if [[ "$path" =~ ^${regex}$ ]]; then
         return 0
@@ -485,7 +492,7 @@ replace_playwright_tools() {
 
     local playwright_tools="mcp__playwright__browser_close, mcp__playwright__browser_console_messages, mcp__playwright__browser_handle_dialog, mcp__playwright__browser_evaluate, mcp__playwright__browser_file_upload, mcp__playwright__browser_fill_form, mcp__playwright__browser_install, mcp__playwright__browser_press_key, mcp__playwright__browser_type, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_network_requests, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_drag, mcp__playwright__browser_hover, mcp__playwright__browser_select_option, mcp__playwright__browser_tabs, mcp__playwright__browser_wait_for, mcp__ide__getDiagnostics, mcp__ide__executeCode, mcp__playwright__browser_resize"
 
-    echo "$tools" | sed "s/Playwright/$playwright_tools/g"
+    echo "${tools//Playwright/$playwright_tools}"
 }
 
 # Process conditional compilation tags ({{IF}}, {{UNLESS}}, {{ENDIF}}, {{ENDUNLESS}})
@@ -630,14 +637,17 @@ process_workflows() {
     local processed_files=$4
 
     # Process each workflow reference
-    local workflow_refs=$(echo "$content" | grep -o '{{workflows/[^}]*}}' | sort -u)
+    local workflow_refs
+    workflow_refs=$(echo "$content" | grep -o '{{workflows/[^}]*}}' | sort -u)
 
     while IFS= read -r workflow_ref; do
         if [[ -z "$workflow_ref" ]]; then
             continue
         fi
 
-        local workflow_path=$(echo "$workflow_ref" | sed 's/{{workflows\///' | sed 's/}}//')
+        local workflow_path
+        workflow_path="${workflow_ref#\{\{workflows/}"
+        workflow_path="${workflow_path%\}\}}"
 
         # Avoid infinite recursion
         if [[ " $processed_files " == *" $workflow_path "* ]]; then
@@ -646,17 +656,21 @@ process_workflows() {
         fi
 
         # Get workflow file
-        local workflow_file=$(get_profile_file "$profile" "workflows/${workflow_path}.md" "$base_dir")
+        local workflow_file
+        workflow_file=$(get_profile_file "$profile" "workflows/${workflow_path}.md" "$base_dir")
 
         if [[ -f "$workflow_file" ]]; then
-            local workflow_content=$(cat "$workflow_file")
+            local workflow_content
+            workflow_content=$(cat "$workflow_file")
 
             # Recursively process nested workflows
             workflow_content=$(process_workflows "$workflow_content" "$base_dir" "$profile" "$processed_files $workflow_path")
 
             # Create temp files for safe replacement
-            local temp_content=$(mktemp)
-            local temp_replacement=$(mktemp)
+            local temp_content
+            temp_content=$(mktemp)
+            local temp_replacement
+            temp_replacement=$(mktemp)
             echo "$content" > "$temp_content"
             echo "$workflow_content" > "$temp_replacement"
 
@@ -691,7 +705,8 @@ process_workflows() {
             # Instead of printing warning to stderr, insert it into the content
             local warning_msg="⚠️ This workflow file was not found in your Agent OS base installation at ~/agent-os/profiles/$profile/workflows/${workflow_path}.md"
             # Use perl for safer replacement with special characters
-            local temp_content=$(mktemp)
+            local temp_content
+            temp_content=$(mktemp)
             echo "$content" > "$temp_content"
             content=$(perl -pe "s|\Q$workflow_ref\E|$workflow_ref\n$warning_msg|g" "$temp_content")
             rm -f "$temp_content"
@@ -710,17 +725,18 @@ process_standards() {
 
     local standards_list=""
 
-    echo "$standards_patterns" | while read pattern; do
+    echo "$standards_patterns" | while read -r pattern; do
         if [[ -z "$pattern" ]]; then
             continue
         fi
 
-        local base_path=$(echo "$pattern" | sed 's/\*//')
+        local base_path
+        base_path="${pattern//\*/}"
 
         if [[ "$pattern" == *"*"* ]]; then
             # Wildcard pattern - find all files
             local search_dir="standards/$base_path"
-            get_profile_files "$profile" "$base_dir" "$search_dir" | while read file; do
+            get_profile_files "$profile" "$base_dir" "$search_dir" | while read -r file; do
                 if [[ "$file" == standards/* ]] && [[ "$file" == *.md ]]; then
                     echo "@agent-os/$file"
                 fi
@@ -728,7 +744,8 @@ process_standards() {
         else
             # Specific file
             local file_path="standards/${pattern}.md"
-            local full_file=$(get_profile_file "$profile" "$file_path" "$base_dir")
+            local full_file
+            full_file=$(get_profile_file "$profile" "$file_path" "$base_dir")
             if [[ -f "$full_file" ]]; then
                 echo "@agent-os/$file_path"
             fi
@@ -751,7 +768,8 @@ process_phase_tags() {
     fi
 
     # Find all PHASE tags: {{PHASE X: @agent-os/commands/path/to/file.md}}
-    local phase_refs=$(echo "$content" | grep -o '{{PHASE [^}]*}}' | sort -u)
+    local phase_refs
+    phase_refs=$(echo "$content" | grep -o '{{PHASE [^}]*}}' | sort -u)
 
     if [[ -z "$phase_refs" ]]; then
         echo "$content"
@@ -768,22 +786,34 @@ process_phase_tags() {
             # Extract: {{PHASE 1: @agent-os/commands/plan-product/1-product-concept.md}}
             # To get: PHASE 1, plan-product/1-product-concept.md, "Product Concept"
 
-            local phase_label=$(echo "$phase_ref" | sed 's/{{//' | sed 's/:.*$//')  # "PHASE 1"
-            local file_ref=$(echo "$phase_ref" | sed 's/.*@agent-os\/commands\///' | sed 's/}}$//')  # "plan-product/1-product-concept.md"
-            local file_name=$(basename "$file_ref" .md)  # "1-product-concept"
+            local phase_label
+            phase_label="${phase_ref#\{\{}"
+            phase_label="${phase_label%%:*}"  # "PHASE 1"
+            local file_ref
+            file_ref="${phase_ref##*@agent-os/commands/}"
+            file_ref="${file_ref%\}\}}"  # "plan-product/1-product-concept.md"
+            local file_name
+            file_name=$(basename "$file_ref" .md)  # "1-product-concept"
 
             # Convert "1-product-concept" to "Product Concept"
-            local title=$(echo "$file_name" | sed 's/^[0-9]*-//' | sed 's/-/ /g' | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1')
+            # Remove leading numbers and hyphen, then convert hyphens to spaces
+            local title="${file_name#[0-9]*-}"
+            title="${title//-/ }"
+            title=$(echo "$title" | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) tolower(substr($i,2));}1')
 
             # Get the actual file path in the profile
             # Insert /single-agent/ into the path: create-tasks/1-file.md -> create-tasks/single-agent/1-file.md
-            local cmd_name=$(dirname "$file_ref")
-            local filename=$(basename "$file_ref")
-            local source_file=$(get_profile_file "$profile" "commands/$cmd_name/single-agent/$filename" "$base_dir")
+            local cmd_name
+            cmd_name=$(dirname "$file_ref")
+            local filename
+            filename=$(basename "$file_ref")
+            local source_file
+            source_file=$(get_profile_file "$profile" "commands/$cmd_name/single-agent/$filename" "$base_dir")
 
             if [[ -f "$source_file" ]]; then
                 # Read the file content
-                local file_content=$(cat "$source_file")
+                local file_content
+                file_content=$(cat "$source_file")
 
                 # Process the file content through the compilation pipeline
                 # (conditionals, workflows, standards) before embedding
@@ -792,18 +822,24 @@ process_phase_tags() {
                 file_content=$(process_workflows "$file_content" "$base_dir" "$profile" "")
 
                 # Process standards replacements in the embedded file
-                local standards_refs=$(echo "$file_content" | grep -o '{{standards/[^}]*}}' | sort -u)
+                local standards_refs
+                standards_refs=$(echo "$file_content" | grep -o '{{standards/[^}]*}}' | sort -u)
                 while IFS= read -r standards_ref; do
                     if [[ -z "$standards_ref" ]]; then
                         continue
                     fi
 
-                    local standards_pattern=$(echo "$standards_ref" | sed 's/{{standards\///' | sed 's/}}//')
-                    local standards_list=$(process_standards "$file_content" "$base_dir" "$profile" "$standards_pattern")
+                    local standards_pattern
+                    standards_pattern="${standards_ref#\{\{standards/}"
+                    standards_pattern="${standards_pattern%\}\}}"
+                    local standards_list
+                    standards_list=$(process_standards "$file_content" "$base_dir" "$profile" "$standards_pattern")
 
                     # Create temp files for the replacement
-                    local temp_file_content=$(mktemp)
-                    local temp_standards=$(mktemp)
+                    local temp_file_content
+                    temp_file_content=$(mktemp)
+                    local temp_standards
+                    temp_standards=$(mktemp)
                     echo "$file_content" > "$temp_file_content"
                     echo "$standards_list" > "$temp_standards"
 
@@ -841,8 +877,10 @@ process_phase_tags() {
                 local replacement="# $phase_label: $title"$'\n\n'"$file_content"
 
                 # Replace the tag with the embedded content
-                local temp_content=$(mktemp)
-                local temp_replacement=$(mktemp)
+                local temp_content
+                temp_content=$(mktemp)
+                local temp_replacement
+                temp_replacement=$(mktemp)
                 echo "$content" > "$temp_content"
                 echo "$replacement" > "$temp_replacement"
 
@@ -892,12 +930,14 @@ compile_agent() {
     local role_data=$5
     local phase_mode=${6:-""}  # Optional: "embed" to embed PHASE content, or empty for no processing
 
-    local content=$(cat "$source_file")
+    local content
+    content=$(cat "$source_file")
 
     # Process role replacements if provided
     if [[ -n "$role_data" ]]; then
         # Process each role replacement using delimiter-based format
-        local temp_role_data=$(mktemp)
+        local temp_role_data
+        temp_role_data=$(mktemp)
         echo "$role_data" > "$temp_role_data"
 
         # Parse the delimiter-based format
@@ -920,8 +960,10 @@ compile_agent() {
 
                 if [[ -n "$key" ]]; then
                     # Create temp files for the replacement
-                    local temp_content=$(mktemp)
-                    local temp_value=$(mktemp)
+                    local temp_content
+                    temp_content=$(mktemp)
+                    local temp_value
+                    temp_value=$(mktemp)
                     echo "$content" > "$temp_content"
                     echo "$value" > "$temp_value"
 
@@ -969,19 +1011,25 @@ compile_agent() {
     content=$(process_workflows "$content" "$base_dir" "$profile" "")
 
     # Process standards replacements
-    local standards_refs=$(echo "$content" | grep -o '{{standards/[^}]*}}' | sort -u)
+    local standards_refs
+    standards_refs=$(echo "$content" | grep -o '{{standards/[^}]*}}' | sort -u)
 
     while IFS= read -r standards_ref; do
         if [[ -z "$standards_ref" ]]; then
             continue
         fi
 
-        local standards_pattern=$(echo "$standards_ref" | sed 's/{{standards\///' | sed 's/}}//')
-        local standards_list=$(process_standards "$content" "$base_dir" "$profile" "$standards_pattern")
+        local standards_pattern
+        standards_pattern="${standards_ref#\{\{standards/}"
+        standards_pattern="${standards_pattern%\}\}}"
+        local standards_list
+        standards_list=$(process_standards "$content" "$base_dir" "$profile" "$standards_pattern")
 
         # Create temp files for the replacement
-        local temp_content=$(mktemp)
-        local temp_standards=$(mktemp)
+        local temp_content
+        temp_content=$(mktemp)
+        local temp_standards
+        temp_standards=$(mktemp)
         echo "$content" > "$temp_content"
         echo "$standards_list" > "$temp_standards"
 
@@ -1019,11 +1067,13 @@ compile_agent() {
     content=$(process_phase_tags "$content" "$base_dir" "$profile" "$phase_mode")
 
     # Replace Playwright in tools
-    if echo "$content" | grep -q "^tools:.*Playwright"; then
-        local tools_line=$(echo "$content" | grep "^tools:")
-        local new_tools_line=$(replace_playwright_tools "$tools_line")
+    if [[ "$content" == *"tools:"* ]] && [[ "$content" == *"Playwright"* ]]; then
+        local tools_line
+        tools_line=$(echo "$content" | grep "^tools:")
+        local new_tools_line
+        new_tools_line=$(replace_playwright_tools "$tools_line")
         # Simple replacement since this is a single line
-        content=$(echo "$content" | sed "s|^tools:.*$|$new_tools_line|")
+        content="${content//"$tools_line"/"$new_tools_line"}"
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -1056,8 +1106,10 @@ check_version_compatibility() {
     local project_version=$2
 
     # Extract major version
-    local base_major=$(echo "$base_version" | cut -d'.' -f1)
-    local project_major=$(echo "$project_version" | cut -d'.' -f1)
+    local base_major
+    base_major="${base_version%%.*}"
+    local project_major
+    project_major="${project_version%%.*}"
 
     if [[ "$base_major" != "$project_major" ]]; then
         return 1
@@ -1076,8 +1128,11 @@ check_needs_migration() {
     fi
 
     # Parse version components
-    local major=$(echo "$project_version" | cut -d'.' -f1)
-    local minor=$(echo "$project_version" | cut -d'.' -f2)
+    local major
+    major="${project_version%%.*}"
+    local rest="${project_version#*.}"
+    local minor
+    minor="${rest%%.*}"
 
     # Check if < 2.1.0
     if [[ "$major" -lt 2 ]]; then
@@ -1118,6 +1173,8 @@ get_project_config() {
 
 # Validate base installation exists
 validate_base_installation() {
+    # Check global BASE_DIR
+    # shellcheck disable=SC2153
     if [[ ! -d "$BASE_DIR" ]]; then
         print_error "Agent OS base installation not found at ~/agent-os/"
         echo ""
@@ -1137,6 +1194,8 @@ validate_base_installation() {
 
 # Check if current directory is the base installation directory
 check_not_base_installation() {
+    # Check global PROJECT_DIR
+    # shellcheck disable=SC2153
     if [[ -f "$PROJECT_DIR/agent-os/config.yml" ]]; then
         if grep -q "base_install: true" "$PROJECT_DIR/agent-os/config.yml"; then
             echo ""
@@ -1163,7 +1222,7 @@ check_not_base_installation() {
 # Parse boolean flag value
 # Outputs: "value shift_count" (e.g., "true 1" or "false 2")
 parse_bool_flag() {
-    local current_value=$1
+    local _current_value=$1
     local next_value=$2
 
     if [[ "$next_value" == "true" ]] || [[ "$next_value" == "false" ]]; then
@@ -1180,6 +1239,7 @@ parse_bool_flag() {
 
 # Load base installation configuration
 load_base_config() {
+    # These set global variables for use in calling scripts
     BASE_VERSION=$(get_yaml_value "$BASE_DIR/config.yml" "version" "2.1.0")
     BASE_PROFILE=$(get_yaml_value "$BASE_DIR/config.yml" "profile" "default")
     BASE_CLAUDE_CODE_COMMANDS=$(get_yaml_value "$BASE_DIR/config.yml" "claude_code_commands" "true")
@@ -1187,14 +1247,24 @@ load_base_config() {
     BASE_AGENT_OS_COMMANDS=$(get_yaml_value "$BASE_DIR/config.yml" "agent_os_commands" "false")
     BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS=$(get_yaml_value "$BASE_DIR/config.yml" "standards_as_claude_code_skills" "true")
 
+    export BASE_VERSION BASE_PROFILE BASE_CLAUDE_CODE_COMMANDS BASE_USE_CLAUDE_CODE_SUBAGENTS BASE_AGENT_OS_COMMANDS BASE_STANDARDS_AS_CLAUDE_CODE_SKILLS
+
     # Check for old config flags to set variables for validation
-    MULTI_AGENT_MODE=$(get_yaml_value "$BASE_DIR/config.yml" "multi_agent_mode" "")
-    SINGLE_AGENT_MODE=$(get_yaml_value "$BASE_DIR/config.yml" "single_agent_mode" "")
-    MULTI_AGENT_TOOL=$(get_yaml_value "$BASE_DIR/config.yml" "multi_agent_tool" "")
+    local multi_agent_mode
+    multi_agent_mode=$(get_yaml_value "$BASE_DIR/config.yml" "multi_agent_mode" "")
+    local single_agent_mode
+    single_agent_mode=$(get_yaml_value "$BASE_DIR/config.yml" "single_agent_mode" "")
+    local multi_agent_tool
+    multi_agent_tool=$(get_yaml_value "$BASE_DIR/config.yml" "multi_agent_tool" "")
+    
+    export BASE_MULTI_AGENT_MODE="$multi_agent_mode"
+    export BASE_SINGLE_AGENT_MODE="$single_agent_mode"
+    export BASE_MULTI_AGENT_TOOL="$multi_agent_tool"
 }
 
 # Load project installation configuration
 load_project_config() {
+    # These set global variables for use in calling scripts
     PROJECT_VERSION=$(get_project_config "$PROJECT_DIR" "version")
     PROJECT_PROFILE=$(get_project_config "$PROJECT_DIR" "profile")
     PROJECT_CLAUDE_CODE_COMMANDS=$(get_project_config "$PROJECT_DIR" "claude_code_commands")
@@ -1202,10 +1272,19 @@ load_project_config() {
     PROJECT_AGENT_OS_COMMANDS=$(get_project_config "$PROJECT_DIR" "agent_os_commands")
     PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS=$(get_project_config "$PROJECT_DIR" "standards_as_claude_code_skills")
 
+    export PROJECT_VERSION PROJECT_PROFILE PROJECT_CLAUDE_CODE_COMMANDS PROJECT_USE_CLAUDE_CODE_SUBAGENTS PROJECT_AGENT_OS_COMMANDS PROJECT_STANDARDS_AS_CLAUDE_CODE_SKILLS
+
     # Check for old config flags to set variables for validation
-    MULTI_AGENT_MODE=$(get_project_config "$PROJECT_DIR" "multi_agent_mode")
-    SINGLE_AGENT_MODE=$(get_project_config "$PROJECT_DIR" "single_agent_mode")
-    MULTI_AGENT_TOOL=$(get_project_config "$PROJECT_DIR" "multi_agent_tool")
+    local multi_agent_mode
+    multi_agent_mode=$(get_project_config "$PROJECT_DIR" "multi_agent_mode")
+    local single_agent_mode
+    single_agent_mode=$(get_project_config "$PROJECT_DIR" "single_agent_mode")
+    local multi_agent_tool
+    multi_agent_tool=$(get_project_config "$PROJECT_DIR" "multi_agent_tool")
+
+    export PROJECT_MULTI_AGENT_MODE="$multi_agent_mode"
+    export PROJECT_SINGLE_AGENT_MODE="$single_agent_mode"
+    export PROJECT_MULTI_AGENT_TOOL="$multi_agent_tool"
 }
 
 # Validate configuration
@@ -1258,7 +1337,8 @@ write_project_config() {
     local standards_as_claude_code_skills=$6
     local dest="$PROJECT_DIR/agent-os/config.yml"
 
-    local config_content="version: $version
+    local config_content
+    config_content="version: $version
 last_compiled: $(date '+%Y-%m-%d %H:%M:%S')
 
 # ================================================
@@ -1272,7 +1352,8 @@ use_claude_code_subagents: $use_claude_code_subagents
 agent_os_commands: $agent_os_commands
 standards_as_claude_code_skills: $standards_as_claude_code_skills"
 
-    local result=$(write_file "$config_content" "$dest")
+    local result
+    result=$(write_file "$config_content" "$dest")
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "$dest"
     fi
@@ -1294,10 +1375,13 @@ convert_filename_to_human_name() {
     local acronyms=("API" "CSS" "HTML" "SQL" "REST" "JSON" "XML" "HTTP" "HTTPS" "URL" "URI" "CLI" "GUI" "IDE" "SDK" "JWT")
 
     # Remove .md extension
-    local name=$(echo "$filename" | sed 's/\.md$//')
+    local name
+    name="${filename%.md}"
 
     # Replace hyphens, underscores, and slashes with spaces
-    name=$(echo "$name" | sed 's|[-_/]| |g')
+    name="${name//-/ }"
+    name="${name//_/ }"
+    name="${name//\// }"
 
     # Convert to lowercase first
     name=$(echo "$name" | tr '[:upper:]' '[:lower:]')
@@ -1305,8 +1389,10 @@ convert_filename_to_human_name() {
     # Replace known acronyms with uppercase version
     # Match all case variations: lowercase, Capitalized, UPPERCASE
     for acronym in "${acronyms[@]}"; do
-        local lowercase=$(echo "$acronym" | tr '[:upper:]' '[:lower:]')
-        local capitalized=$(echo "$lowercase" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+        local lowercase
+        lowercase=$(echo "$acronym" | tr '[:upper:]' '[:lower:]')
+        local capitalized
+        capitalized=$(echo "$lowercase" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
 
         # Replace all variations with the uppercase acronym
         # Use Perl for portable word boundary matching (\b works consistently across platforms)
@@ -1330,10 +1416,13 @@ convert_filename_to_human_name_capitalized() {
     local acronyms=("API" "CSS" "HTML" "SQL" "REST" "JSON" "XML" "HTTP" "HTTPS" "URL" "URI" "CLI" "GUI" "IDE" "SDK" "JWT")
 
     # Remove .md extension
-    local name=$(echo "$filename" | sed 's/\.md$//')
+    local name
+    name="${filename%.md}"
 
     # Replace hyphens, underscores, and slashes with spaces
-    name=$(echo "$name" | sed 's|[-_/]| |g')
+    name="${name//-/ }"
+    name="${name//_/ }"
+    name="${name//\// }"
 
     # Capitalize first letter of each word
     name=$(echo "$name" | awk '{for(i=1;i<=NF;i++)sub(/./,toupper(substr($i,1,1)),$i)}1')
@@ -1341,8 +1430,10 @@ convert_filename_to_human_name_capitalized() {
     # Replace known acronyms with uppercase version
     # Match all case variations: lowercase, Capitalized, UPPERCASE
     for acronym in "${acronyms[@]}"; do
-        local lowercase=$(echo "$acronym" | tr '[:upper:]' '[:lower:]')
-        local capitalized=$(echo "$lowercase" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+        local lowercase
+        lowercase=$(echo "$acronym" | tr '[:upper:]' '[:lower:]')
+        local capitalized
+        capitalized=$(echo "$lowercase" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
 
         # Replace all variations with the uppercase acronym
         # Use Perl for portable word boundary matching (\b works consistently across platforms)
@@ -1367,20 +1458,27 @@ create_standard_skill() {
     # Remove "standards/" prefix and ".md" extension for skill directory name
     # Convert path separators to hyphens
     # Example: "standards/frontend/css.md" -> "frontend-css"
-    local skill_name=$(echo "$standards_file" | sed 's|^standards/||' | sed 's|\.md$||' | sed 's|/|-|g')
+    local skill_name
+    skill_name="${standards_file#standards/}"
+    skill_name="${skill_name%.md}"
+    skill_name="${skill_name//\//-}"
 
     # Get human-readable name from the full path (excluding "standards/")
     # Example: "standards/frontend/css.md" -> "frontend CSS" (lowercase)
-    local path_without_standards=$(echo "$standards_file" | sed 's|^standards/||')
-    local human_name=$(convert_filename_to_human_name "$path_without_standards")
-    local human_name_capitalized=$(convert_filename_to_human_name_capitalized "$path_without_standards")
+    local path_without_standards
+    path_without_standards="${standards_file#standards/}"
+    local human_name
+    human_name=$(convert_filename_to_human_name "$path_without_standards")
+    local human_name_capitalized
+    human_name_capitalized=$(convert_filename_to_human_name_capitalized "$path_without_standards")
 
     # Create skill directory (directly in .claude/skills/, not in agent-os subfolder)
     local skill_dir="$dest_base/.claude/skills/$skill_name"
     ensure_dir "$skill_dir"
 
     # Get the skill template from the profile
-    local template_file=$(get_profile_file "$profile" "claude-code-skill-template.md" "$base_dir")
+    local template_file
+    template_file=$(get_profile_file "$profile" "claude-code-skill-template.md" "$base_dir")
     if [[ ! -f "$template_file" ]]; then
         print_error "Skill template not found: $template_file"
         return 1
@@ -1390,10 +1488,11 @@ create_standard_skill() {
     local standard_file_path_with_prefix="agent-os/$standards_file"
 
     # Read template and replace placeholders
-    local skill_content=$(cat "$template_file")
-    skill_content=$(echo "$skill_content" | sed "s|{{standard_name_humanized}}|$human_name|g")
-    skill_content=$(echo "$skill_content" | sed "s|{{standard_name_humanized_capitalized}}|$human_name_capitalized|g")
-    skill_content=$(echo "$skill_content" | sed "s|{{standard_file_path}}|$standard_file_path_with_prefix|g")
+    local skill_content
+    skill_content=$(cat "$template_file")
+    skill_content="${skill_content//\{\{standard_name_humanized\}\}/$human_name}"
+    skill_content="${skill_content//\{\{standard_name_humanized_capitalized\}\}/$human_name_capitalized}"
+    skill_content="${skill_content//\{\{standard_file_path\}\}/$standard_file_path_with_prefix}"
 
     # Write SKILL.md
     local skill_file="$skill_dir/SKILL.md"
@@ -1419,13 +1518,16 @@ install_claude_code_skills() {
     local skills_count=0
 
     # Get all standards files for the current profile
-    while read file; do
+    while read -r file; do
         if [[ "$file" == standards/* ]] && [[ "$file" == *.md ]]; then
             # Create skill from this standards file
             create_standard_skill "$file" "$PROJECT_DIR" "$BASE_DIR" "$EFFECTIVE_PROFILE"
 
             # Track the skill file for dry run
-            local skill_name=$(echo "$file" | sed 's|^standards/||' | sed 's|\.md$||' | sed 's|/|-|g')
+            local skill_name
+            skill_name="${file#standards/}"
+            skill_name="${skill_name%.md}"
+            skill_name="${skill_name//\//-}"
             local skill_file="$PROJECT_DIR/.claude/skills/$skill_name/SKILL.md"
             if [[ "$DRY_RUN" == "true" ]]; then
                 INSTALLED_FILES+=("$skill_file")
@@ -1453,13 +1555,14 @@ install_improve_skills_command() {
     mkdir -p "$target_dir"
 
     # Find the improve-skills command file
-    local source_file=$(get_profile_file "$EFFECTIVE_PROFILE" "commands/improve-skills/improve-skills.md" "$BASE_DIR")
+    local source_file
+    source_file=$(get_profile_file "$EFFECTIVE_PROFILE" "commands/improve-skills/improve-skills.md" "$BASE_DIR")
 
     if [[ -f "$source_file" ]]; then
         local dest="$target_dir/improve-skills.md"
 
         # Compile the command (with workflow and standards injection)
-        local compiled=$(compile_command "$source_file" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE")
+        compile_command "$source_file" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE"
 
         if [[ "$DRY_RUN" == "true" ]]; then
             INSTALLED_FILES+=("$dest")

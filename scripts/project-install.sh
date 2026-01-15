@@ -13,6 +13,7 @@ BASE_DIR="$HOME/agent-os"
 PROJECT_DIR="$(pwd)"
 
 # Source common functions
+# shellcheck source=scripts/common-functions.sh
 source "$SCRIPT_DIR/common-functions.sh"
 
 # -----------------------------------------------------------------------------
@@ -85,20 +86,20 @@ parse_arguments() {
                 shift 2
                 ;;
             --claude-code-commands)
-                read CLAUDE_CODE_COMMANDS shift_count <<< "$(parse_bool_flag "$CLAUDE_CODE_COMMANDS" "$2")"
-                shift $shift_count
+                read -r CLAUDE_CODE_COMMANDS shift_count <<< "$(parse_bool_flag "$CLAUDE_CODE_COMMANDS" "$2")"
+                shift "$shift_count"
                 ;;
             --use-claude-code-subagents)
-                read USE_CLAUDE_CODE_SUBAGENTS shift_count <<< "$(parse_bool_flag "$USE_CLAUDE_CODE_SUBAGENTS" "$2")"
-                shift $shift_count
+                read -r USE_CLAUDE_CODE_SUBAGENTS shift_count <<< "$(parse_bool_flag "$USE_CLAUDE_CODE_SUBAGENTS" "$2")"
+                shift "$shift_count"
                 ;;
             --agent-os-commands)
-                read AGENT_OS_COMMANDS shift_count <<< "$(parse_bool_flag "$AGENT_OS_COMMANDS" "$2")"
-                shift $shift_count
+                read -r AGENT_OS_COMMANDS shift_count <<< "$(parse_bool_flag "$AGENT_OS_COMMANDS" "$2")"
+                shift "$shift_count"
                 ;;
             --standards-as-claude-code-skills)
-                read STANDARDS_AS_CLAUDE_CODE_SKILLS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_CLAUDE_CODE_SKILLS" "$2")"
-                shift $shift_count
+                read -r STANDARDS_AS_CLAUDE_CODE_SKILLS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_CLAUDE_CODE_SKILLS" "$2")"
+                shift "$shift_count"
                 ;;
             --re-install)
                 RE_INSTALL="true"
@@ -106,18 +107,22 @@ parse_arguments() {
                 ;;
             --overwrite-all)
                 OVERWRITE_ALL="true"
+                export OVERWRITE_ALL
                 shift
                 ;;
             --overwrite-standards)
                 OVERWRITE_STANDARDS="true"
+                export OVERWRITE_STANDARDS
                 shift
                 ;;
             --overwrite-commands)
                 OVERWRITE_COMMANDS="true"
+                export OVERWRITE_COMMANDS
                 shift
                 ;;
             --overwrite-agents)
                 OVERWRITE_AGENTS="true"
+                export OVERWRITE_AGENTS
                 shift
                 ;;
             --dry-run)
@@ -126,6 +131,7 @@ parse_arguments() {
                 ;;
             --verbose)
                 VERBOSE="true"
+                export VERBOSE
                 shift
                 ;;
             -h|--help)
@@ -178,13 +184,15 @@ install_standards() {
 
     local standards_count=0
 
-    while read file; do
+    while read -r file; do
         if [[ "$file" == standards/* ]]; then
-            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
             local dest="$PROJECT_DIR/agent-os/$file"
 
             if [[ -f "$source" ]]; then
-                local installed_file=$(copy_file "$source" "$dest")
+                local installed_file
+                installed_file=$(copy_file "$source" "$dest")
                 if [[ -n "$installed_file" ]]; then
                     INSTALLED_FILES+=("$installed_file")
                     ((standards_count++)) || true
@@ -212,17 +220,19 @@ install_claude_code_commands_with_delegation() {
 
     mkdir -p "$target_dir"
 
-    while read file; do
+    while read -r file; do
         # Process multi-agent command files OR orchestrate-tasks special case
         if [[ "$file" == commands/*/multi-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
                 # Extract command name from path (e.g., commands/create-spec/multi-agent/create-spec.md -> create-spec)
-                local cmd_name=$(echo "$file" | cut -d'/' -f2)
+                local cmd_name
+                cmd_name=$(echo "$file" | cut -d'/' -f2)
                 local dest="$target_dir/${cmd_name}.md"
 
                 # Compile with workflow and standards injection (includes conditional compilation)
-                local compiled=$(compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE")
+                compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE"
                 if [[ "$DRY_RUN" == "true" ]]; then
                     INSTALLED_FILES+=("$dest")
                 fi
@@ -246,30 +256,34 @@ install_claude_code_commands_without_delegation() {
 
     local commands_count=0
 
-    while read file; do
+    while read -r file; do
         # Process single-agent command files OR orchestrate-tasks special case
         if [[ "$file" == commands/*/single-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
                 # Handle orchestrate-tasks specially (flat destination)
                 if [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
                     local dest="$PROJECT_DIR/.claude/commands/agent-os/orchestrate-tasks.md"
                     # Compile without PHASE embedding for orchestrate-tasks
-                    local compiled=$(compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "")
+                    compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" ""
                     if [[ "$DRY_RUN" == "true" ]]; then
                         INSTALLED_FILES+=("$dest")
                     fi
                     ((commands_count++)) || true
                 else
                     # Only install non-numbered files (e.g., plan-product.md, not 1-product-concept.md)
-                    local filename=$(basename "$file")
+                    local filename
+                    filename=$(basename "$file")
                     if [[ ! "$filename" =~ ^[0-9]+-.*\.md$ ]]; then
                         # Extract command name (e.g., commands/plan-product/single-agent/plan-product.md -> plan-product.md)
-                        local cmd_name=$(echo "$file" | sed 's|commands/\([^/]*\)/single-agent/.*|\1|')
+                        local cmd_name
+                        cmd_name="${file#commands/}"
+                        cmd_name="${cmd_name%%/*}"
                         local dest="$PROJECT_DIR/.claude/commands/agent-os/$cmd_name.md"
 
                         # Compile with PHASE embedding (mode="embed")
-                        local compiled=$(compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "embed")
+                        compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "embed"
                         if [[ "$DRY_RUN" == "true" ]]; then
                             INSTALLED_FILES+=("$dest")
                         fi
@@ -298,17 +312,19 @@ install_claude_code_agents() {
     
     mkdir -p "$target_dir"
 
-    while read file; do
+    while read -r file; do
         # Include all agent files (flatten structure - no subfolders in output)
         if [[ "$file" == agents/*.md ]] && [[ "$file" != agents/templates/* ]]; then
-            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
                 # Get just the filename (flatten directory structure)
-                local filename=$(basename "$file")
+                local filename
+                filename=$(basename "$file")
                 local dest="$target_dir/$filename"
-                
+
                 # Compile with workflow and standards injection
-                local compiled=$(compile_agent "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "")
+                compile_agent "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" ""
                 if [[ "$DRY_RUN" == "true" ]]; then
                     INSTALLED_FILES+=("$dest")
                 fi
@@ -332,22 +348,25 @@ install_agent_os_commands() {
 
     local commands_count=0
 
-    while read file; do
+    while read -r file; do
         # Process single-agent command files OR orchestrate-tasks special case
         if [[ "$file" == commands/*/single-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-            local source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$EFFECTIVE_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
                 # Handle orchestrate-tasks specially (preserve folder structure)
                 if [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
                     local dest="$PROJECT_DIR/agent-os/commands/orchestrate-tasks/orchestrate-tasks.md"
                 else
                     # Extract command name and preserve numbering
-                    local cmd_path=$(echo "$file" | sed 's|commands/\([^/]*\)/single-agent/\(.*\)|\1/\2|')
+                    local cmd_path
+                    cmd_path="${file#commands/}"
+                    cmd_path="${cmd_path/\/single-agent/}"
                     local dest="$PROJECT_DIR/agent-os/commands/$cmd_path"
                 fi
 
                 # Compile with workflow and standards injection and PHASE embedding
-                local compiled=$(compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "embed")
+                compile_command "$source" "$dest" "$BASE_DIR" "$EFFECTIVE_PROFILE" "embed"
                 if [[ "$DRY_RUN" == "true" ]]; then
                     INSTALLED_FILES+=("$dest")
                 fi
@@ -373,7 +392,8 @@ create_agent_os_folder() {
     ensure_dir "$PROJECT_DIR/agent-os"
 
     # Create the configuration file
-    local config_file=$(write_project_config "$EFFECTIVE_VERSION" "$EFFECTIVE_PROFILE" \
+    local config_file
+    config_file=$(write_project_config "$EFFECTIVE_VERSION" "$EFFECTIVE_PROFILE" \
         "$EFFECTIVE_CLAUDE_CODE_COMMANDS" "$EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS" \
         "$EFFECTIVE_AGENT_OS_COMMANDS" "$EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS")
     if [[ "$DRY_RUN" == "true" && -n "$config_file" ]]; then
@@ -431,7 +451,7 @@ perform_installation() {
         print_status "The following files would be created:"
         for file in "${INSTALLED_FILES[@]}"; do
             # Make paths relative to project root
-            local relative_path="${file#$PROJECT_DIR/}"
+            local relative_path="${file#"$PROJECT_DIR"/}"
             echo "  - $relative_path"
         done
     else
@@ -467,7 +487,7 @@ perform_installation() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
         echo ""
-        read -p "Proceed with actual installation? (y/n): " -n 1 -r
+        read -r -p "Proceed with actual installation? (y/n): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             DRY_RUN="false"
@@ -497,7 +517,7 @@ handle_reinstallation() {
         echo ""
     fi
 
-    read -p "Are you sure you want to proceed? (y/n): " -n 1 -r
+    read -r -p "Are you sure you want to proceed? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         print_status "Re-installation cancelled"

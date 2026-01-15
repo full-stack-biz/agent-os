@@ -10,6 +10,7 @@ REPO_URL="https://github.com/buildermethods/agent-os"
 
 # Installation paths
 BASE_DIR="$HOME/agent-os"
+TEMP_DIR=
 TEMP_DIR=$(mktemp -d)
 COMMON_FUNCTIONS_TEMP="$TEMP_DIR/common-functions.sh"
 
@@ -38,6 +39,7 @@ download_common_functions() {
 
     if curl -sL --fail "$functions_url" -o "$COMMON_FUNCTIONS_TEMP"; then
         # Source the common functions
+        # shellcheck source=/dev/null
         source "$COMMON_FUNCTIONS_TEMP"
         return 0
     else
@@ -70,7 +72,11 @@ trap cleanup EXIT
 # Get latest version from GitHub
 get_latest_version() {
     local config_url="${REPO_URL}/raw/main/config.yml"
-    curl -sL "$config_url" | grep "^version:" | sed 's/version: *//' | tr -d '\r\n'
+    local version_line
+    version_line=$(curl -sL "$config_url" | grep "^version:")
+    version_line="${version_line#version:}"
+    version_line="${version_line# }"
+    printf '%s' "${version_line//[$'\r\n']/}"
 }
 
 # -----------------------------------------------------------------------------
@@ -128,7 +134,8 @@ get_all_repo_files() {
 
     # Extract owner and repo name from URL
     # From: https://github.com/owner/repo to owner/repo
-    local repo_path=$(echo "$REPO_URL" | sed 's|^https://github.com/||')
+    local repo_path
+    repo_path="${REPO_URL#https://github.com/}"
 
     print_verbose "Repository path: $repo_path"
 
@@ -137,7 +144,8 @@ get_all_repo_files() {
 
     print_verbose "Fetching from: $tree_url"
 
-    local response=$(curl -sL "$tree_url")
+    local response
+    response=$(curl -sL "$tree_url")
 
     # Check if we got a valid response
     if [[ -z "$response" ]]; then
@@ -149,7 +157,8 @@ get_all_repo_files() {
     print_verbose "Response preview: ${response:0:500}"
 
     if echo "$response" | grep -q '"message"'; then
-        local error_msg=$(echo "$response" | grep -o '"message":"[^"]*"' | sed 's/"message":"//' | sed 's/"$//')
+        local error_msg
+        error_msg=$(echo "$response" | grep -o '"message":"[^"]*"' | sed 's/"message":"//' | sed 's/"$//')
         print_verbose "GitHub API error: $error_msg"
         return 1
     fi
@@ -163,7 +172,7 @@ get_all_repo_files() {
     # Use jq if available, otherwise use python
     if command -v jq &> /dev/null; then
         print_verbose "Using jq to parse JSON"
-        echo "$response" | jq -r '.tree[] | select(.type=="blob") | .path' | while read -r file_path; do
+        echo "$response" | jq -r '.tree[] | select(.type=="blob") | .path' | while IFS= read -r file_path; do
             if ! should_exclude "$file_path"; then
                 echo "$file_path"
             fi
@@ -176,7 +185,7 @@ data = json.load(sys.stdin)
 for item in data.get('tree', []):
     if item.get('type') == 'blob':
         print(item.get('path', ''))
-" | while read -r file_path; do
+" | while IFS= read -r file_path; do
             if [[ -n "$file_path" ]] && ! should_exclude "$file_path"; then
                 echo "$file_path"
             fi
@@ -184,7 +193,7 @@ for item in data.get('tree', []):
     else
         print_verbose "Using sed/awk to parse JSON (less reliable)"
         # Parse JSON using sed and awk - less reliable but works for simple cases
-        echo "$response" | awk -F'"' '/"type":"blob"/{blob=1} blob && /"path":/{print $4; blob=0}' | while read -r file_path; do
+        echo "$response" | awk -F'"' '/"type":"blob"/{blob=1} blob && /"path":/{print $4; blob=0}' | while IFS= read -r file_path; do
             if ! should_exclude "$file_path"; then
                 echo "$file_path"
             fi
@@ -200,7 +209,8 @@ download_all_files() {
     print_verbose "Fetching repository file list..."
 
     # Get list of all files (excluding our exclusion list)
-    local all_files=$(get_all_repo_files)
+    local all_files
+    all_files=$(get_all_repo_files)
 
     if [[ -z "$all_files" ]]; then
         echo "0"  # Return 0 to indicate no files downloaded
@@ -213,7 +223,8 @@ download_all_files() {
             local dest_file="${dest_base}/${file_path}"
 
             # Create directory if needed
-            local dir_path=$(dirname "$dest_file")
+            local dir_path
+            dir_path=$(dirname "$dest_file")
             [[ -d "$dir_path" ]] || mkdir -p "$dir_path"
 
             if download_file "$file_path" "$dest_file"; then
@@ -243,7 +254,7 @@ spinner() {
     while true; do
         for dot_count in "" "." ".." "..."; do
             echo -ne "\r${BLUE}Installing Agent OS files${dot_count}${NC}   "
-            sleep $delay
+            sleep "$delay"
         done
     done
 }
@@ -274,8 +285,8 @@ install_all_files() {
 
     # Stop spinner if running
     if [[ -n "$spinner_pid" ]]; then
-        kill $spinner_pid 2>/dev/null
-        wait $spinner_pid 2>/dev/null
+        kill "$spinner_pid" 2>/dev/null
+        wait "$spinner_pid" 2>/dev/null
         # Clear the line and restore cursor
         echo -ne "\r\033[K"
         tput cnorm 2>/dev/null || true  # Show cursor again
@@ -375,7 +386,7 @@ prompt_overwrite_choice() {
     echo -e "${YELLOW}6) Cancel and abort${NC}"
     echo ""
 
-    read -p "Enter your choice (1-6): " choice < /dev/tty
+    read -r -p "Enter your choice (1-6): " choice < /dev/tty
 
     case $choice in
         1)
@@ -440,12 +451,14 @@ full_update() {
     print_status "Updating default profile..."
     rm -rf "$BASE_DIR/profiles/default"
     local file_count=0
-    local all_files=$(get_all_repo_files | grep "^profiles/default/")
+    local all_files
+    all_files=$(get_all_repo_files | grep "^profiles/default/")
     if [[ -n "$all_files" ]]; then
         while IFS= read -r file_path; do
             if [[ -n "$file_path" ]]; then
                 local dest_file="${BASE_DIR}/${file_path}"
-                local dir_path=$(dirname "$dest_file")
+                local dir_path
+                dir_path=$(dirname "$dest_file")
                 [[ -d "$dir_path" ]] || mkdir -p "$dir_path"
                 if download_file "$file_path" "$dest_file"; then
                     ((file_count++)) || true
@@ -466,7 +479,8 @@ full_update() {
         while IFS= read -r file_path; do
             if [[ -n "$file_path" ]]; then
                 local dest_file="${BASE_DIR}/${file_path}"
-                local dir_path=$(dirname "$dest_file")
+                local dir_path
+                dir_path=$(dirname "$dest_file")
                 [[ -d "$dir_path" ]] || mkdir -p "$dir_path"
                 if download_file "$file_path" "$dest_file"; then
                     ((file_count++)) || true
@@ -522,13 +536,15 @@ overwrite_profile() {
     local file_count=0
 
     # Get all files and filter for profiles/default
-    local all_files=$(get_all_repo_files | grep "^profiles/default/")
+    local all_files
+    all_files=$(get_all_repo_files | grep "^profiles/default/")
 
     if [[ -n "$all_files" ]]; then
         while IFS= read -r file_path; do
             if [[ -n "$file_path" ]]; then
                 local dest_file="${BASE_DIR}/${file_path}"
-                local dir_path=$(dirname "$dest_file")
+                local dir_path
+                dir_path=$(dirname "$dest_file")
                 [[ -d "$dir_path" ]] || mkdir -p "$dir_path"
 
                 if download_file "$file_path" "$dest_file"; then
@@ -553,13 +569,15 @@ overwrite_scripts() {
     local file_count=0
 
     # Get all files and filter for scripts/
-    local all_files=$(get_all_repo_files | grep "^scripts/")
+    local all_files
+    all_files=$(get_all_repo_files | grep "^scripts/")
 
     if [[ -n "$all_files" ]]; then
         while IFS= read -r file_path; do
             if [[ -n "$file_path" ]]; then
                 local dest_file="${BASE_DIR}/${file_path}"
-                local dir_path=$(dirname "$dest_file")
+                local dir_path
+                dir_path=$(dirname "$dest_file")
                 [[ -d "$dir_path" ]] || mkdir -p "$dir_path"
 
                 if download_file "$file_path" "$dest_file"; then
@@ -640,7 +658,8 @@ check_existing_installation() {
         fi
 
         # Get latest version from GitHub
-        local latest_version=$(get_latest_version)
+        local latest_version
+        latest_version=$(get_latest_version)
 
         # Prompt for overwrite choice
         prompt_overwrite_choice "$current_version" "$latest_version"

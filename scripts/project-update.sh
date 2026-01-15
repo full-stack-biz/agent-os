@@ -13,6 +13,7 @@ BASE_DIR="$HOME/agent-os"
 PROJECT_DIR="$(pwd)"
 
 # Source common functions
+# shellcheck source=scripts/common-functions.sh
 source "$SCRIPT_DIR/common-functions.sh"
 
 # -----------------------------------------------------------------------------
@@ -87,39 +88,44 @@ parse_arguments() {
                 shift 2
                 ;;
             --claude-code-commands)
-                read CLAUDE_CODE_COMMANDS shift_count <<< "$(parse_bool_flag "$CLAUDE_CODE_COMMANDS" "$2")"
-                shift $shift_count
+                read -r CLAUDE_CODE_COMMANDS shift_count <<< "$(parse_bool_flag "$CLAUDE_CODE_COMMANDS" "$2")"
+                shift "$shift_count"
                 ;;
             --use-claude-code-subagents)
-                read USE_CLAUDE_CODE_SUBAGENTS shift_count <<< "$(parse_bool_flag "$USE_CLAUDE_CODE_SUBAGENTS" "$2")"
-                shift $shift_count
+                read -r USE_CLAUDE_CODE_SUBAGENTS shift_count <<< "$(parse_bool_flag "$USE_CLAUDE_CODE_SUBAGENTS" "$2")"
+                shift "$shift_count"
                 ;;
             --agent-os-commands)
-                read AGENT_OS_COMMANDS shift_count <<< "$(parse_bool_flag "$AGENT_OS_COMMANDS" "$2")"
-                shift $shift_count
+                read -r AGENT_OS_COMMANDS shift_count <<< "$(parse_bool_flag "$AGENT_OS_COMMANDS" "$2")"
+                shift "$shift_count"
                 ;;
             --standards-as-claude-code-skills)
-                read STANDARDS_AS_CLAUDE_CODE_SKILLS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_CLAUDE_CODE_SKILLS" "$2")"
-                shift $shift_count
+                read -r STANDARDS_AS_CLAUDE_CODE_SKILLS shift_count <<< "$(parse_bool_flag "$STANDARDS_AS_CLAUDE_CODE_SKILLS" "$2")"
+                shift "$shift_count"
                 ;;
             --re-install)
                 RE_INSTALL="true"
+                export RE_INSTALL
                 shift
                 ;;
             --overwrite-all)
                 OVERWRITE_ALL="true"
+                export OVERWRITE_ALL
                 shift
                 ;;
             --overwrite-agents)
                 OVERWRITE_AGENTS="true"
+                export OVERWRITE_AGENTS
                 shift
                 ;;
             --overwrite-commands)
                 OVERWRITE_COMMANDS="true"
+                export OVERWRITE_COMMANDS
                 shift
                 ;;
             --overwrite-standards)
                 OVERWRITE_STANDARDS="true"
+                export OVERWRITE_STANDARDS
                 shift
                 ;;
             --dry-run)
@@ -128,6 +134,7 @@ parse_arguments() {
                 ;;
             --verbose)
                 VERBOSE="true"
+                export VERBOSE
                 shift
                 ;;
             -h|--help)
@@ -233,9 +240,10 @@ update_standards() {
     local standards_skipped=0
     local standards_new=0
 
-    while read file; do
+    while read -r file; do
         if [[ "$file" == standards/* ]]; then
-            local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
             local dest="$PROJECT_DIR/agent-os/$file"
 
             if [[ -f "$source" ]]; then
@@ -281,17 +289,19 @@ update_single_agent_commands() {
     local commands_skipped=0
     local commands_new=0
 
-    while read file; do
+    while read -r file; do
         # Process single-agent command files OR orchestrate-tasks special case
         if [[ "$file" == commands/*/single-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-            local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
                 # Handle orchestrate-tasks specially (preserve folder structure)
                 if [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
                     local dest="$PROJECT_DIR/agent-os/commands/orchestrate-tasks/orchestrate-tasks.md"
                 else
                     # Strip the single-agent/ subfolder for agent-os/commands structure
-                    local dest_file=$(echo "$file" | sed 's/\/single-agent//')
+                    local dest_file
+                    dest_file="${file//\/single-agent/}"
                     local dest="$PROJECT_DIR/agent-os/$dest_file"
                 fi
 
@@ -346,15 +356,18 @@ update_claude_code_files() {
     # Determine which command mode to use based on subagents setting
     if [[ "$PROJECT_USE_CLAUDE_CODE_SUBAGENTS" == "true" ]]; then
         # Process multi-agent command files
-        while read file; do
+        while read -r file; do
             if [[ "$file" == commands/*/multi-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-                local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+                local source
+                source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
                 if [[ -f "$source" ]]; then
                     # Extract command name
                     if [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
                         local command_name="orchestrate-tasks"
                     else
-                        local command_name=$(echo "$file" | sed 's/commands\///' | sed 's/\/multi-agent.*//')
+                        local command_name
+                        command_name="${file#commands/}"
+                        command_name="${command_name%%/multi-agent*}"
                     fi
                     local dest="$PROJECT_DIR/.claude/commands/agent-os/${command_name}.md"
 
@@ -382,9 +395,10 @@ update_claude_code_files() {
         done < <(get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "commands")
     else
         # Process single-agent command files (only non-numbered files, with PHASE embedding)
-        while read file; do
+        while read -r file; do
             if [[ "$file" == commands/*/single-agent/* ]] || [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
-                local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+                local source
+                source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
                 if [[ -f "$source" ]]; then
                     # Handle orchestrate-tasks specially
                     if [[ "$file" == commands/orchestrate-tasks/orchestrate-tasks.md ]]; then
@@ -410,9 +424,12 @@ update_claude_code_files() {
                         fi
                     else
                         # Only process non-numbered files
-                        local filename=$(basename "$file")
+                        local filename
+                        filename=$(basename "$file")
                         if [[ ! "$filename" =~ ^[0-9]+-.*\.md$ ]]; then
-                            local cmd_name=$(echo "$file" | sed 's|commands/\([^/]*\)/single-agent/.*|\1|')
+                            local cmd_name
+                            cmd_name="${file#commands/}"
+                            cmd_name="${cmd_name%%/*}"
                             local dest="$PROJECT_DIR/.claude/commands/agent-os/$cmd_name.md"
 
                             if should_skip_file "$dest" "$OVERWRITE_ALL" "$OVERWRITE_COMMANDS" "command"; then
@@ -442,11 +459,13 @@ update_claude_code_files() {
     fi
 
     # Update static agents
-    get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "agents" | while read file; do
+    while read -r file; do
         if [[ "$file" == agents/*.md ]] && [[ "$file" != agents/templates/* ]]; then
-            local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
-                local agent_name=$(basename "$file" .md)
+                local agent_name
+                agent_name=$(basename "$file" .md)
                 local dest="$PROJECT_DIR/.claude/agents/agent-os/${agent_name}.md"
 
                 if should_skip_file "$dest" "$OVERWRITE_ALL" "$OVERWRITE_AGENTS" "agent"; then
@@ -466,14 +485,16 @@ update_claude_code_files() {
                 fi
             fi
         fi
-    done
+    done < <(get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "agents")
 
     # Update specification agents
-    get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "agents/specification" | while read file; do
+    while read -r file; do
         if [[ "$file" == agents/specification/*.md ]]; then
-            local source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
+            local source
+            source=$(get_profile_file "$PROJECT_PROFILE" "$file" "$BASE_DIR")
             if [[ -f "$source" ]]; then
-                local agent_name=$(basename "$file" .md)
+                local agent_name
+                agent_name=$(basename "$file" .md)
                 local dest="$PROJECT_DIR/.claude/agents/agent-os/${agent_name}.md"
 
                 if should_skip_file "$dest" "$OVERWRITE_ALL" "$OVERWRITE_AGENTS" "agent"; then
@@ -493,7 +514,7 @@ update_claude_code_files() {
                 fi
             fi
         fi
-    done
+    done < <(get_profile_files "$PROJECT_PROFILE" "$BASE_DIR" "agents/specification")
 
     if [[ "$DRY_RUN" != "true" ]]; then
         # Count commands separately
@@ -640,7 +661,7 @@ perform_update() {
             echo ""
         fi
 
-        read -p "Proceed with actual update? (y/n): " -n 1 -r
+        read -r -p "Proceed with actual update? (y/n): " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             DRY_RUN="false"
@@ -765,7 +786,7 @@ prompt_update_confirmation() {
     fi
     echo ""
 
-    read -p "Do you want to proceed? (y/n): " -n 1 -r
+    read -r -p "Do you want to proceed? (y/n): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         return 0  # user confirmed
@@ -827,9 +848,12 @@ perform_update_cleanup() {
     # Delete individual Agent OS skills (new location: .claude/skills/[skill-name]/)
     # Find all skills that match standards files from the profile
     if [[ -d "$PROJECT_DIR/.claude/skills" ]]; then
-        while read file; do
+        while read -r file; do
             if [[ "$file" == standards/* ]] && [[ "$file" == *.md ]]; then
-                local skill_name=$(echo "$file" | sed 's|^standards/||' | sed 's|\.md$||' | sed 's|/|-|g')
+                local skill_name
+                skill_name="${file#standards/}"
+                skill_name="${skill_name%.md}"
+                skill_name="${skill_name//\//-}"
                 if [[ -d "$PROJECT_DIR/.claude/skills/$skill_name" ]]; then
                     print_status "Removing .claude/skills/$skill_name/"
                     if [[ "$DRY_RUN" != "true" ]]; then
