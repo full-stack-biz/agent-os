@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/common-functions.sh"
 # Default Values
 # -----------------------------------------------------------------------------
 
-VERBOSE="false"
+export VERBOSE="false"
 PROFILE=""
 COMMANDS_ONLY="false"
 
@@ -64,7 +64,7 @@ parse_arguments() {
                 shift
                 ;;
             --verbose)
-                VERBOSE="true"
+                export VERBOSE="true"
                 shift
                 ;;
             -h|--help)
@@ -113,7 +113,8 @@ load_configuration() {
     local config_file="$BASE_DIR/config.yml"
 
     # Get default profile from config
-    local default_profile=$(get_yaml_value "$config_file" "default_profile" "default")
+    local default_profile
+    default_profile=$(get_yaml_value "$config_file" "default_profile" "default")
 
     # Use command line profile or default
     EFFECTIVE_PROFILE="${PROFILE:-$default_profile}"
@@ -125,7 +126,8 @@ load_configuration() {
     fi
 
     # Build inheritance chain
-    local chain_result=$(get_profile_inheritance_chain "$config_file" "$EFFECTIVE_PROFILE" "$BASE_DIR/profiles")
+    local chain_result
+    chain_result=$(get_profile_inheritance_chain "$config_file" "$EFFECTIVE_PROFILE" "$BASE_DIR/profiles")
 
     # Check for errors
     if [[ "$chain_result" == CIRCULAR:* ]]; then
@@ -174,16 +176,24 @@ confirm_standards_overwrite() {
         echo ""
         echo "This will overwrite your existing standards with standards from the '$EFFECTIVE_PROFILE' profile."
         echo ""
-        read -p "Do you want to continue? (y/N) " -n 1 -r
-        echo ""
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+
+        # Only prompt if stdin is available
+        if [[ -t 0 ]]; then
+            read -p "Do you want to continue? (y/N) " -n 1 -r
             echo ""
-            echo "Installation cancelled."
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                echo ""
+                echo "Installation cancelled."
+                echo ""
+                echo "To update only commands without touching standards, use:"
+                echo "  $0 --commands-only"
+                echo ""
+                exit 0
+            fi
+        else
+            # Non-interactive mode: default to yes
+            echo "Running in non-interactive mode. Proceeding with installation."
             echo ""
-            echo "To update only commands without touching standards, use:"
-            echo "  $0 --commands-only"
-            echo ""
-            exit 0
         fi
     fi
 }
@@ -214,8 +224,9 @@ install_standards() {
     local profiles_used=0
 
     # Temp file to track file sources (format: relative_path|profile_name)
-    local sources_file=$(mktemp)
-    trap "rm -f $sources_file" EXIT
+    local sources_file
+    sources_file=$(mktemp)
+    trap 'rm -f "$sources_file"' EXIT
 
     # Process each profile in the inheritance chain (base first, so later ones override)
     while IFS= read -r profile_name; do
@@ -231,7 +242,7 @@ install_standards() {
 
         # Find all .md files in this profile, excluding .backups
         while IFS= read -r -d '' file; do
-            local relative_path="${file#$profile_standards/}"
+            local relative_path="${file#"$profile_standards"/}"
             local dest_file="$project_standards/$relative_path"
 
             ensure_dir "$(dirname "$dest_file")"
@@ -241,19 +252,21 @@ install_standards() {
             grep -v "^${relative_path}|" "$sources_file" > "${sources_file}.tmp" 2>/dev/null || true
             mv "${sources_file}.tmp" "$sources_file"
             echo "${relative_path}|${profile_name}" >> "$sources_file"
-            ((profile_file_count++))
+            ((profile_file_count++)) || true
         done < <(find "$profile_standards" -name "*.md" -type f ! -path "*/.backups/*" -print0 2>/dev/null)
 
         if [[ "$profile_file_count" -gt 0 ]]; then
-            ((profiles_used++))
+            ((profiles_used++)) || true
         fi
     done <<< "$INHERITANCE_CHAIN"
 
     # Count profiles in chain to determine if we show sources
-    local chain_count=$(echo "$INHERITANCE_CHAIN" | grep -c .)
+    local chain_count
+    chain_count=$(echo "$INHERITANCE_CHAIN" | grep -c .)
 
     # Count and display
-    local total_count=$(wc -l < "$sources_file" | tr -d ' ')
+    local total_count
+    total_count=$(wc -l < "$sources_file" | tr -d ' ')
 
     if [[ "$total_count" -gt 0 ]]; then
         # Sort and display files - only show source if inheritance is present
@@ -307,7 +320,8 @@ create_index() {
         fi
 
         # Use awk to find the description for this folder/file combo
-        local desc=$(echo "$old_index" | awk -v folder="$folder" -v file="$filename" '
+        local desc
+        desc=$(echo "$old_index" | awk -v folder="$folder" -v file="$filename" '
             $0 ~ "^"folder":$" { in_folder=1; next }
             /^[a-zA-Z0-9_-]+:$/ { in_folder=0 }
             in_folder && $0 ~ "^  "file":$" { in_file=1; next }
@@ -327,41 +341,49 @@ create_index() {
     }
 
     # First, handle root-level .md files (not in subfolders)
-    local root_files=$(find "$standards_dir" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort)
+    local root_files
+    root_files=$(find "$standards_dir" -maxdepth 1 -name "*.md" -type f 2>/dev/null | sort)
     if [[ -n "$root_files" ]]; then
         echo "root:" >> "$temp_file"
         while IFS= read -r file; do
-            local filename=$(basename "$file" .md)
-            local desc=$(get_existing_description "root" "$filename")
+            local filename
+            filename=$(basename "$file" .md)
+            local desc
+            desc=$(get_existing_description "root" "$filename")
             if [[ -z "$desc" ]]; then
                 desc="Needs description - run /index-standards"
-                ((new_count++))
+                ((new_count++)) || true
             fi
             echo "  $filename:" >> "$temp_file"
             echo "    description: $desc" >> "$temp_file"
-            ((entry_count++))
+            ((entry_count++)) || true
         done <<< "$root_files"
         echo "" >> "$temp_file"
     fi
 
     # Then handle files in subfolders
-    local folders=$(find "$standards_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
+    local folders
+    folders=$(find "$standards_dir" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort)
     for folder in $folders; do
-        local folder_name=$(basename "$folder")
-        local md_files=$(find "$folder" -name "*.md" -type f 2>/dev/null | sort)
+        local folder_name
+        folder_name=$(basename "$folder")
+        local md_files
+        md_files=$(find "$folder" -name "*.md" -type f 2>/dev/null | sort)
 
         if [[ -n "$md_files" ]]; then
             echo "$folder_name:" >> "$temp_file"
             while IFS= read -r file; do
-                local filename=$(basename "$file" .md)
-                local desc=$(get_existing_description "$folder_name" "$filename")
+                local filename
+                filename=$(basename "$file" .md)
+                local desc
+                desc=$(get_existing_description "$folder_name" "$filename")
                 if [[ -z "$desc" ]]; then
                     desc="Needs description - run /index-standards"
-                    ((new_count++))
+                    ((new_count++)) || true
                 fi
                 echo "  $filename:" >> "$temp_file"
                 echo "    description: $desc" >> "$temp_file"
-                ((entry_count++))
+                ((entry_count++)) || true
             done <<< "$md_files"
             echo "" >> "$temp_file"
         fi
@@ -399,7 +421,7 @@ install_commands() {
     for file in "$commands_source"/*.md; do
         if [[ -f "$file" ]]; then
             cp "$file" "$commands_dest/"
-            ((count++))
+            ((count++)) || true
         fi
     done
 
@@ -435,7 +457,8 @@ main() {
     local chain_depth=0
     local chain_display=""
     # Read chain in reverse order (from requested profile back to base) for display
-    local reversed_chain=$(echo "$INHERITANCE_CHAIN" | tac)
+    local reversed_chain
+    reversed_chain=$(echo "$INHERITANCE_CHAIN" | sed '1!G;h;$!d')
     while IFS= read -r profile_name; do
         [[ -z "$profile_name" ]] && continue
         if [[ "$chain_depth" -eq 0 ]]; then
@@ -444,10 +467,10 @@ main() {
             local indent=""
             for ((i=0; i<chain_depth; i++)); do
                 indent="$indent  "
-            done
+            done || true
             chain_display="$chain_display"$'\n'"$indent  ↳ inherits from: $profile_name"
         fi
-        ((chain_depth++))
+        ((chain_depth++)) || true
     done <<< "$reversed_chain"
     echo "$chain_display"
 

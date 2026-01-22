@@ -10,7 +10,6 @@ RED='\033[38;2;255;32;86m'
 GREEN='\033[38;2;0;234;179m'
 YELLOW='\033[38;2;255;185;0m'
 BLUE='\033[38;2;0;208;255m'
-PURPLE='\033[38;2;142;81;255m'
 NC='\033[0m' # No Color
 
 # -----------------------------------------------------------------------------
@@ -21,7 +20,7 @@ NC='\033[0m' # No Color
 print_color() {
     local color=$1
     shift
-    echo -e "${color}$@${NC}"
+    echo -e "${color}$*${NC}"
 }
 
 # Print section header
@@ -73,7 +72,8 @@ get_yaml_value() {
         return
     fi
 
-    local value=$(grep "^${key}:" "$file" | sed "s/^${key}:[[:space:]]*//" | sed 's/[[:space:]]*$//')
+    local value
+    value=$(grep "^${key}:" "$file" | sed "s/^${key}:[[:space:]]*//" | sed 's/[[:space:]]*$//')
 
     if [[ -n "$value" ]]; then
         echo "$value"
@@ -98,7 +98,8 @@ get_profile_inherits_from() {
     # profiles:
     #   profile-name:
     #     inherits_from: parent-profile
-    local value=$(awk -v profile="$profile_name" '
+    local value
+    value=$(awk -v profile="$profile_name" '
         /^profiles:/ { in_profiles=1; next }
         /^[a-zA-Z]/ && !/^[[:space:]]/ { in_profiles=0 }
         in_profiles && $0 ~ "^  "profile":$" { in_target=1; next }
@@ -134,7 +135,8 @@ get_profile_inheritance_chain() {
             local cycle_path="$current"
             local trace="$profile_name"
             while [[ "$trace" != "$current" ]] || [[ -z "$cycle_path" || "$cycle_path" == "$current" ]]; do
-                local parent=$(get_profile_inherits_from "$config_file" "$trace")
+                local parent
+                parent=$(get_profile_inherits_from "$config_file" "$trace")
                 if [[ "$trace" == "$profile_name" ]]; then
                     cycle_path="$trace"
                 else
@@ -214,7 +216,7 @@ copy_standards() {
 
     # Find all .md files, excluding .backups directory
     while IFS= read -r -d '' file; do
-        local relative_path="${file#$source_dir/}"
+        local relative_path="${file#"$source_dir"/}"
         local dest_file="$dest_dir/$relative_path"
 
         ensure_dir "$(dirname "$dest_file")"

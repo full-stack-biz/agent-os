@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/common-functions.sh"
 # Default Values
 # -----------------------------------------------------------------------------
 
-VERBOSE="false"
+export VERBOSE="false"
 PROFILE=""
 NEW_PROFILE=""
 SYNC_ALL="false"
@@ -81,7 +81,7 @@ parse_arguments() {
                 shift
                 ;;
             --verbose)
-                VERBOSE="true"
+                export VERBOSE="true"
                 shift
                 ;;
             -h|--help)
@@ -132,7 +132,7 @@ find_standards_files() {
 
     # Find all .md files, excluding .backups directory
     while IFS= read -r -d '' file; do
-        local relative_path="${file#$standards_dir/}"
+        local relative_path="${file#"$standards_dir"/}"
         STANDARDS_FILES+=("$relative_path")
     done < <(find "$standards_dir" -name "*.md" -type f ! -path "*/.backups/*" -print0 2>/dev/null | sort -z)
 
@@ -154,7 +154,8 @@ list_existing_profiles() {
     local profiles=()
     for dir in "$BASE_DIR/profiles"/*/; do
         if [[ -d "$dir" ]]; then
-            local name=$(basename "$dir")
+            local name
+            name=$(basename "$dir")
             profiles+=("$name")
         fi
     done
@@ -173,7 +174,7 @@ select_profile() {
     if [[ -n "$PROFILE" ]]; then
         if [[ ! -d "$BASE_DIR/profiles/$PROFILE" ]]; then
             echo ""
-            read -p "Profile '$PROFILE' doesn't exist. Create it? (y/n): " create_choice
+            read -rp "Profile '$PROFILE' doesn't exist. Create it? (y/n): " create_choice
             if [[ "$create_choice" =~ ^[Yy] ]]; then
                 create_new_profile "$PROFILE"
             else
@@ -189,7 +190,8 @@ select_profile() {
     print_status "Available profiles:"
     echo ""
 
-    local profiles=($(list_existing_profiles))
+    local profiles=()
+    mapfile -t profiles < <(list_existing_profiles)
     local i=1
 
     for profile in "${profiles[@]}"; do
@@ -203,7 +205,7 @@ select_profile() {
     local choice
 
     while true; do
-        read -p "Select profile (1-$max_choice): " choice
+        read -rp "Select profile (1-$max_choice): " choice
 
         if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "$max_choice" ]]; then
             break
@@ -214,7 +216,7 @@ select_profile() {
     if [[ "$choice" -eq "$max_choice" ]]; then
         # Create new profile
         echo ""
-        read -p "Enter new profile name: " PROFILE
+        read -rp "Enter new profile name: " PROFILE
         if [[ -z "$PROFILE" ]]; then
             print_error "Profile name cannot be empty."
             exit 1
@@ -256,7 +258,7 @@ select_files() {
     # Initialize selection array (all selected by default)
     local selected=()
     for ((i=0; i<${#STANDARDS_FILES[@]}; i++)); do
-        selected[$i]=1
+        selected[i]=1
     done
 
     # Calculate lines to clear (files + 5 for header/footer)
@@ -299,17 +301,17 @@ select_files() {
         fi
 
         display_file_selection
-        read -p "Toggle (1-${#STANDARDS_FILES[@]}), a, n, or d: " choice
+        read -rp "Toggle (1-${#STANDARDS_FILES[@]}), a, n, or d: " choice
 
         case "$choice" in
             a|A)
                 for ((i=0; i<${#STANDARDS_FILES[@]}; i++)); do
-                    selected[$i]=1
+                    selected[i]=1
                 done
                 ;;
             n|N)
                 for ((i=0; i<${#STANDARDS_FILES[@]}; i++)); do
-                    selected[$i]=0
+                    selected[i]=0
                 done
                 ;;
             d|D)
@@ -319,9 +321,9 @@ select_files() {
                 if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le ${#STANDARDS_FILES[@]} ]]; then
                     local idx=$((choice-1))
                     if [[ ${selected[$idx]} -eq 1 ]]; then
-                        selected[$idx]=0
+                        selected[idx]=0
                     else
-                        selected[$idx]=1
+                        selected[idx]=1
                     fi
                 fi
                 # Invalid input just redisplays
@@ -383,7 +385,7 @@ check_conflicts() {
         echo "  2) Skip existing files"
         echo "  3) Cancel"
         echo ""
-        read -p "Choice (1-3): " conflict_choice
+        read -rp "Choice (1-3): " conflict_choice
 
         case "$conflict_choice" in
             1)
@@ -436,7 +438,8 @@ backup_files() {
     fi
 
     local profile_standards="$BASE_DIR/profiles/$PROFILE/standards"
-    local timestamp=$(date +"%Y-%m-%d-%H%M")
+    local timestamp
+    timestamp=$(date +"%Y-%m-%d-%H%M")
     local backup_dir="$profile_standards/.backups/$timestamp"
 
     mkdir -p "$backup_dir"
