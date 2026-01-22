@@ -9,7 +9,8 @@ set -e  # Exit on error
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BASE_DIR="$HOME/agent-os"
+# Support custom installation directory via env var or CLI flag
+BASE_DIR="${AGENT_OS_HOME:-$HOME/agent-os}"
 PROFILES_DIR="$BASE_DIR/profiles"
 
 # Source common functions
@@ -279,6 +280,43 @@ EOF
 # -----------------------------------------------------------------------------
 
 main() {
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --base-dir)
+                BASE_DIR="$2"
+                PROFILES_DIR="$BASE_DIR/profiles"
+                shift 2
+                ;;
+            -h|--help)
+                echo "Usage: $0 [OPTIONS]"
+                echo ""
+                echo "Create a new Agent OS profile."
+                echo ""
+                echo "Options:"
+                echo "  --base-dir PATH  Path to Agent OS base installation (default: \$HOME/agent-os or \$AGENT_OS_HOME)"
+                echo "  -h, --help       Show this help message"
+                echo ""
+                echo "Environment Variables:"
+                echo "  AGENT_OS_HOME    Path to Agent OS base installation"
+                echo ""
+                echo "Examples:"
+                echo "  $0"
+                echo "  $0 --base-dir /custom/path"
+                echo "  AGENT_OS_HOME=/custom/path $0"
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use -h or --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+
+    # Export BASE_DIR for use in common functions
+    export BASE_DIR
+
     clear
     echo ""
     echo -e "${BLUE}=== Agent OS - Create Profile Utility ===${NC}"

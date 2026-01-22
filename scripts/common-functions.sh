@@ -703,7 +703,7 @@ process_workflows() {
             rm -f "$temp_content" "$temp_replacement"
         else
             # Instead of printing warning to stderr, insert it into the content
-            local warning_msg="⚠️ This workflow file was not found in your Agent OS base installation at ~/agent-os/profiles/$profile/workflows/${workflow_path}.md"
+            local warning_msg="⚠️ This workflow file was not found in your Agent OS base installation at ${BASE_DIR:-$HOME/agent-os}/profiles/$profile/workflows/${workflow_path}.md"
             # Use perl for safer replacement with special characters
             local temp_content
             temp_content=$(mktemp)
@@ -1176,7 +1176,7 @@ validate_base_installation() {
     # Check global BASE_DIR
     # shellcheck disable=SC2153
     if [[ ! -d "$BASE_DIR" ]]; then
-        print_error "Agent OS base installation not found at ~/agent-os/"
+        print_error "Agent OS base installation not found at ${BASE_DIR:-$HOME/agent-os}"
         echo ""
         print_status "Please run the base installation first:"
         echo "  curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/scripts/base-install.sh | bash"
@@ -1208,7 +1208,7 @@ check_not_base_installation() {
             echo ""
             echo "And then run:"
             echo ""
-            echo "  ~/agent-os/scripts/project-install.sh"
+            echo "  ${BASE_DIR:-$HOME/agent-os}/scripts/project-install.sh"
             echo ""
             exit 1
         fi
@@ -1344,7 +1344,7 @@ last_compiled: $(date '+%Y-%m-%d %H:%M:%S')
 # ================================================
 # Compiled with the following settings:
 #
-# To change these settings, run ~/agent-os/scripts/project-update.sh to re-compile your project with the new settings.
+# To change these settings, run ${BASE_DIR:-$HOME/agent-os}/scripts/project-update.sh to re-compile your project with the new settings.
 # ================================================
 profile: $profile
 claude_code_commands: $claude_code_commands

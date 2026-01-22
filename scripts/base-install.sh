@@ -9,10 +9,16 @@ set -e
 REPO_URL="https://github.com/buildermethods/agent-os"
 
 # Installation paths
-BASE_DIR="$HOME/agent-os"
+# Support custom installation directory via env var or CLI flag
+BASE_DIR="${AGENT_OS_HOME:-$HOME/agent-os}"
 TEMP_DIR=
 TEMP_DIR=$(mktemp -d)
 COMMON_FUNCTIONS_TEMP="$TEMP_DIR/common-functions.sh"
+
+# Execution flags
+NON_INTERACTIVE=false
+VERBOSE=false
+DRY_RUN=false
 
 # -----------------------------------------------------------------------------
 # Bootstrap Functions (before common-functions.sh is available)
@@ -337,6 +343,15 @@ prompt_overwrite_choice() {
     fi
 
     echo ""
+
+    # Handle non-interactive mode
+    if [[ "$NON_INTERACTIVE" == "true" ]]; then
+        print_status "Non-interactive mode: performing full update..."
+        echo ""
+        full_update "$latest_version"
+        return
+    fi
+
     print_status "What would you like to do?"
     echo ""
 
@@ -669,12 +684,8 @@ check_existing_installation() {
     fi
 }
 
-# -----------------------------------------------------------------------------
-# Global Variables
-# -----------------------------------------------------------------------------
-
-VERBOSE=false
-DRY_RUN=false
+# Global variables are declared at the top of the script
+# (NON_INTERACTIVE, QUIET, VERBOSE, DRY_RUN, BASE_DIR, etc.)
 
 # -----------------------------------------------------------------------------
 # Main Execution
@@ -686,6 +697,14 @@ main() {
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
+            --base-dir)
+                BASE_DIR="$2"
+                shift 2
+                ;;
+            --non-interactive)
+                NON_INTERACTIVE=true
+                shift
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -694,8 +713,19 @@ main() {
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
                 echo "Options:"
-                echo "  -v, --verbose    Show verbose output"
-                echo "  -h, --help       Show this help message"
+                echo "  --base-dir PATH       Installation directory (default: \$HOME/agent-os or \$AGENT_OS_HOME)"
+                echo "  --non-interactive     Non-interactive mode for CI/CD (auto-accepts full update)"
+                echo "  -v, --verbose         Show verbose output"
+                echo "  -h, --help            Show this help message"
+                echo ""
+                echo "Environment Variables:"
+                echo "  AGENT_OS_HOME         Set default installation directory"
+                echo ""
+                echo "Examples:"
+                echo "  $0"
+                echo "  $0 --base-dir /custom/path"
+                echo "  $0 --non-interactive"
+                echo "  AGENT_OS_HOME=/custom/path $0"
                 exit 0
                 ;;
             *)

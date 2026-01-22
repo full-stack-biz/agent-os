@@ -9,7 +9,8 @@ set -e  # Exit on error
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BASE_DIR="$HOME/agent-os"
+# Support custom installation directory via env var or CLI flag
+BASE_DIR="${AGENT_OS_HOME:-$HOME/agent-os}"
 PROJECT_DIR="$(pwd)"
 
 # Source common functions
@@ -45,6 +46,7 @@ Usage: $0 [OPTIONS]
 Install Agent OS into the current project directory.
 
 Options:
+    --base-dir PATH                          Path to Agent OS base installation (default: \$HOME/agent-os or \$AGENT_OS_HOME)
     --profile PROFILE                        Use specified profile (default: from config.yml)
     --claude-code-commands [BOOL]            Install Claude Code commands (default: from config.yml)
     --use-claude-code-subagents [BOOL]       Use Claude Code subagents (default: from config.yml)
@@ -61,9 +63,14 @@ Options:
 
 Note: Flags accept both hyphens and underscores (e.g., --use-claude-code-subagents or --use_claude_code_subagents)
 
+Environment Variables:
+    AGENT_OS_HOME                            Path to Agent OS base installation
+
 Examples:
     $0
     $0 --profile rails
+    $0 --base-dir /custom/path
+    AGENT_OS_HOME=/custom/path $0
     $0 --claude-code-commands true --use-claude-code-subagents true
     $0 --agent-os-commands true --dry-run
 
@@ -81,6 +88,10 @@ parse_arguments() {
         local flag="${1//_/-}"
 
         case $flag in
+            --base-dir)
+                BASE_DIR="$2"
+                shift 2
+                ;;
             --profile)
                 PROFILE="$2"
                 shift 2
@@ -545,6 +556,9 @@ main() {
 
     # Parse command line arguments
     parse_arguments "$@"
+
+    # Export BASE_DIR for use in common functions
+    export BASE_DIR
 
     # Check if we're trying to install in the base installation directory
     check_not_base_installation

@@ -12,12 +12,47 @@ Agent OS is a spec-driven development framework that transforms AI coding agents
 
 ### Installation & Setup
 
+#### Base Installation (Web Method - Primary)
+
+The simplest way to install Agent OS globally:
+
 ```bash
-# Base installation (first time only) - installs Agent OS globally
+# Install to ~/.agent-os (default)
+curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/install.sh | bash
+
+# Install to custom directory
+curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/install.sh | bash -s -- --base-dir /custom/path
+
+# Non-interactive mode (for CI/CD)
+curl -sSL https://raw.githubusercontent.com/buildermethods/agent-os/main/install.sh | bash -s -- --non-interactive
+```
+
+#### Base Installation (Local Method - Alternative)
+
+If you have the repository locally:
+
+```bash
+# From repository root
 bash scripts/base-install.sh
 
-# Install Agent OS into a project
+# With custom directory
+bash scripts/base-install.sh --base-dir /custom/path
+
+# With non-interactive mode
+bash scripts/base-install.sh --non-interactive
+
+# With verbose output
+bash scripts/base-install.sh --verbose
+```
+
+#### Project Installation & Updates
+
+```bash
+# Install Agent OS into a project (uses default or AGENT_OS_HOME location)
 bash scripts/project-install.sh
+
+# Install with custom base directory
+bash scripts/project-install.sh --base-dir /custom/agent-os-path
 
 # Update Agent OS in a project (if already installed)
 bash scripts/project-update.sh
@@ -25,6 +60,36 @@ bash scripts/project-update.sh
 # Create a new custom profile (advanced)
 bash scripts/create-profile.sh
 ```
+
+### Custom Installation Directory
+
+Agent OS supports installing and running from custom directories, enabling:
+- Testing different Agent OS versions simultaneously
+- Multiple separate installations for different teams or workflows
+- CI/CD pipelines with specific installation paths
+- Development and testing scenarios
+
+**Three-layer precedence** (CLI flag > Environment variable > Default):
+
+1. **CLI flag** (highest priority):
+   ```bash
+   bash scripts/project-install.sh --base-dir /custom/agent-os-path
+   bash scripts/project-update.sh --base-dir /custom/agent-os-path
+   bash scripts/create-profile.sh --base-dir /custom/agent-os-path
+   ```
+
+2. **Environment variable** (medium priority):
+   ```bash
+   export AGENT_OS_HOME=/custom/agent-os-path
+   bash scripts/project-install.sh
+   bash scripts/project-update.sh
+   ```
+
+3. **Default location** (lowest priority):
+   ```bash
+   # Uses $HOME/agent-os by default
+   bash scripts/project-install.sh
+   ```
 
 ### Key Configuration
 
@@ -40,20 +105,28 @@ Agent OS uses `config.yml` for global settings:
 
 ### Core Components
 
-1. **Scripts** (`/scripts`)
-   - `base-install.sh`: Initial Agent OS installation to `~/agent-os`
-   - `project-install.sh`: Install Agent OS into a project
-   - `project-update.sh`: Update existing project installations
-   - `common-functions.sh`: Shared utilities (52KB, contains YAML parsing, file operations, output formatting)
-   - `create-profile.sh`: Create custom profiles
+1. **Installation Scripts** (`/`)
+   - `install.sh`: Web installer entry point (recommended for new installations via curl)
+     - Displays welcome banner and system compatibility checks
+     - Delegates to `scripts/base-install.sh` with argument pass-through
+     - Detects CI/CD environments and suggests non-interactive mode
 
-2. **Profiles** (`/profiles/default`)
+2. **Scripts** (`/scripts`)
+   - `base-install.sh`: Initial Agent OS installation to `~/agent-os` (or custom directory)
+     - Supports `--non-interactive` flag for CI/CD automation
+     - Can update existing installations with interactive prompts
+   - `project-install.sh`: Install Agent OS into a project (uses specified or default base installation)
+   - `project-update.sh`: Update existing project installations (supports custom base directories)
+   - `common-functions.sh`: Shared utilities (52KB, contains YAML parsing, file operations, output formatting)
+   - `create-profile.sh`: Create custom profiles (supports custom base directories)
+
+3. **Profiles** (`/profiles/default`)
    - **Commands** (`/commands`): Entry points for user workflows (plan-product, shape-spec, write-spec, create-tasks, implement-tasks, orchestrate-tasks, improve-skills)
    - **Agents** (`/agents`): Specialized subagents (product-planner, spec-shaper, spec-writer, tasks-list-creator, implementer, implementation-verifier, spec-initializer, spec-verifier)
    - **Workflows** (`/workflows`): Sequential execution steps for each command
    - **Standards** (`/standards`): Coding standards organized by domain (global, frontend, backend, testing)
 
-3. **Configuration** (`/config.yml`)
+4. **Configuration** (`/config.yml`)
    - Global defaults for all projects
    - Installation method and feature toggles
 
@@ -135,10 +208,178 @@ project/
 
 ### 4. Template System
 
-Profiles use `{{variable}}` syntax for substitution:
-- Profile values injected during installation
-- Allows customization without modifying core files
-- Currently minimal use; mainly for profile name/version
+Agent OS uses a sophisticated `{{double-braces}}` template system that processes files at **installation time** (not runtime). Templates are expanded by `scripts/common-functions.sh` functions `compile_agent()` and `compile_command()` during `project-install.sh` and `project-update.sh`.
+
+#### Template Processing Pipeline
+
+Templates are processed in this exact order:
+1. **Variable substitution** — Replace `{{var_name}}` with provided values
+2. **Conditionals** — Evaluate `{{IF}}`, `{{UNLESS}}`, `{{ENDIF}}`, `{{ENDUNLESS}}`
+3. **Workflow includes** — Replace `{{workflows/path}}` with file contents (recursive)
+4. **Standards includes** — Replace `{{standards/...}}` with file references (glob support)
+5. **PHASE tags** — Embed `{{PHASE N: @agent-os/path.md}}` with headers (single-agent only)
+
+#### Supported Directives
+
+**A. Conditionals** — Include/exclude blocks based on config flags
+```markdown
+{{IF use_claude_code_subagents}}
+[content for multi-agent mode]
+{{ENDIF use_claude_code_subagents}}
+
+{{UNLESS standards_as_claude_code_skills}}
+[content when standards are file references, not Skills]
+{{ENDUNLESS standards_as_claude_code_skills}}
+```
+- Supported conditions: `use_claude_code_subagents`, `standards_as_claude_code_skills`
+- Nesting and mixed IF/UNLESS supported
+- Evaluated based on runtime config values
+
+**B. Workflow Includes** — Embed workflow file contents
+```markdown
+{{workflows/implementation/implement-tasks}}
+{{workflows/specification/research-spec}}
+```
+- Recursively processes nested workflows
+- Detects circular references and errors
+- Preserves newlines using Perl-based safe replacement
+- Resolves paths relative to profile directory
+
+**C. Standards Includes** — Embed standards references (converted to `@agent-os/standards/...` format)
+```markdown
+{{standards/global/coding-style}}              # Specific standard
+{{standards/frontend/*}}                       # All frontend standards
+{{standards/*}}                                # All standards
+```
+- Wildcard patterns (`*`) expanded to all matching files in profile
+- Includes file reference format: `@agent-os/standards/domain/filename.md`
+- Used in agent prompts to inject relevant standards
+
+**D. PHASE Tags** — Embed numbered instruction files with auto-generated headers (single-agent commands only)
+```markdown
+{{PHASE 1: @agent-os/commands/plan-product/1-product-concept.md}}
+{{PHASE 2: @agent-os/commands/plan-product/2-roadmap.md}}
+{{PHASE 3: @agent-os/commands/plan-product/3-tech-stack.md}}
+```
+- Only processed when compiling single-agent command variants (embed mode)
+- Generates H1 header from filename: `"1-product-concept.md"` → `# PHASE 1: Product Concept"`
+- Recursively processes nested templates in embedded content
+- Inserts `/single-agent/` into path when looking up file
+
+**E. Variable Substitution** — Replace `{{key_name}}` with provided values
+```markdown
+name: {{standard_name_humanized_capitalized}}
+description: Your approach to handling {{standard_name_humanized}}...
+[Reference](../../../{{standard_file_path}})
+```
+- Used primarily in skill generation templates
+- Multi-line values supported via `<<<key_name>>>` delimiters
+- Safe regex replacement using `quotemeta()` escaping
+
+#### Context-Aware Processing
+
+Template behavior changes based on configuration and context:
+
+| Context | Variable | Value | Behavior |
+|---------|----------|-------|----------|
+| Multi-agent commands | `use_claude_code_subagents` | true | Standards included, conditionals branch to agent version |
+| Single-agent commands | `use_claude_code_subagents` | false | Standards included, conditionals branch to direct version |
+| Standards as file refs | `standards_as_claude_code_skills` | false | `{{standards/*}}` expands to file references |
+| Standards as Skills | `standards_as_claude_code_skills` | true | `{{UNLESS standards_as_claude_code_skills}}` block removed |
+| Single-agent compile | `phase_mode="embed"` | true | PHASE tags expanded into content |
+| Multi-agent compile | `phase_mode="embed"` | false | PHASE tags left as-is (handled by subagents) |
+
+#### Where Templates Are Resolved
+
+**Installation Phase** (`scripts/project-install.sh`):
+- Line 235: Multi-agent commands compiled (PHASE tags not embedded)
+- Line 286: Single-agent commands compiled (PHASE tags embedded)
+- Line 327: Agents compiled (workflows + standards injected)
+- Line 369: Standards converted to Skills (if enabled)
+
+Configuration context set before compilation:
+- `EFFECTIVE_USE_CLAUDE_CODE_SUBAGENTS` — From config.yml `use_claude_code_subagents`
+- `EFFECTIVE_STANDARDS_AS_CLAUDE_CODE_SKILLS` — From config.yml `standards_as_claude_code_skills`
+- `EFFECTIVE_PROFILE` — From config.yml `profile` setting
+
+**Update Phase** (`scripts/project-update.sh`):
+- Uses same compile functions with same configuration context
+- Regenerates all installed commands and agents with updated templates
+
+#### Common Usage Patterns
+
+**Pattern 1: Conditional Standards Injection (Agents)**
+```markdown
+{{UNLESS standards_as_claude_code_skills}}
+## User Standards & Preferences
+
+IMPORTANT: Refer to user's preferred standards:
+
+{{standards/*}}
+{{ENDUNLESS standards_as_claude_code_skills}}
+```
+Result: If `standards_as_claude_code_skills=false`, standards references included; otherwise removed.
+
+**Pattern 2: Workflow Delegation (Agents)**
+```markdown
+Execute the workflow:
+
+{{workflows/implementation/implement-tasks}}
+```
+Result: Workflow file content inserted at this location.
+
+**Pattern 3: Phased Instructions (Single-Agent Commands)**
+```markdown
+{{PHASE 1: @agent-os/commands/implement-tasks/1-determine-tasks.md}}
+
+{{PHASE 2: @agent-os/commands/implement-tasks/2-implement-tasks.md}}
+
+{{PHASE 3: @agent-os/commands/implement-tasks/3-verify-implementation.md}}
+```
+Result: Each file embedded with auto-generated header (single-agent) or left as-is (multi-agent subagents).
+
+**Pattern 4: Variable Substitution (Skill Templates)**
+```markdown
+---
+name: {{standard_name_humanized_capitalized}}
+description: Guidelines for {{standard_name_humanized}}
+---
+
+[View Standard]({{standard_file_path}})
+```
+Result: Variables replaced from standards metadata during skill generation.
+
+#### Implementation Details
+
+**Processing Functions** (`scripts/common-functions.sh`):
+- `process_conditionals()` (lines 500-630) — Parse IF/UNLESS with nesting
+- `process_workflows()` (lines 633-717) — Recursively replace workflow includes
+- `process_standards()` (lines 720-754) — Expand standards patterns to references
+- `process_phase_tags()` (lines 758-922) — Embed PHASE files with headers
+- `compile_agent()` (lines 925-1086) — Master orchestration function
+- `compile_command()` (lines 1089-1097) — Wrapper for commands
+
+**Safety Features**:
+- Circular reference detection in workflow includes
+- Perl-based newline-preserving replacement (safe from shell escaping issues)
+- Safe regex escaping using `quotemeta()` for variable substitution
+- Validation of template syntax before output
+
+#### Template Scoping
+
+- **Agent templates** — Used in `/profiles/default/agents/*.md` for prompt customization
+- **Command templates** — Used in `/profiles/default/commands/*/single-agent/*.md` and multi-agent variants
+- **Skill templates** — Used in `profiles/default/claude-code-skill-template.md` for auto-generation
+- **Workflow templates** — Workflows can contain templates but are processed recursively
+
+#### When NOT to Use Templates
+
+Templates are processed at **installation time**, not at agent execution time:
+- ❌ Don't use `{{}}` for agent runtime logic — it's expanded before Claude sees it
+- ❌ Don't use `{{}}` for user input placeholders — user won't see them
+- ❌ Don't expect dynamic template evaluation — all expansion happens during install/update
+
+Use regular markdown instead if you need runtime flexibility.
 
 ### 5. YAML Parsing
 
@@ -148,6 +389,122 @@ Profiles use `{{variable}}` syntax for substitution:
 - Validation of required keys
 
 **Key functions**: `get_yaml_value()`, `get_yaml_array()`, `validate_yaml()`
+
+## Working with Agent OS Subagents & Templates
+
+When validating, refining, or creating subagents in Agent OS projects, follow these rules to avoid breaking internal tooling:
+
+### What NOT to Do
+
+**❌ DO NOT remove, modify, or suggest removal of template directives:**
+- `{{IF condition}}`, `{{UNLESS condition}}`, `{{ENDIF}}`, `{{ENDUNLESS}}`
+- `{{workflows/path/to/workflow}}`
+- `{{standards/domain/*}}`
+- `{{PHASE N: @agent-os/path}}`
+- `{{variable_name}}`
+
+These are compile-time directives processed by `scripts/common-functions.sh` during installation. They are NOT runtime logic and will be expanded before Claude executes the subagent.
+
+**❌ DO NOT suggest adding runtime logic that duplicates what templates do:**
+- Don't suggest hardcoding workflow steps when `{{workflows/...}}` exists
+- Don't suggest listing all standards when `{{standards/*}}` exists
+- Don't suggest conditional prompt text when `{{IF/UNLESS}}` handles it
+
+**❌ DO NOT remove Agent OS-specific YAML fields:**
+- `color` field (used by Agent OS for visual organization)
+- Other non-standard fields added by Agent OS framework
+
+**❌ DO NOT treat template directives as "missing clarity":**
+- Guides like "prompt must be clear and procedural" don't apply to template-based content
+- The prompt will be clear AFTER template expansion at install time
+- Don't expect agent prompts to be standalone executable before installation
+
+**❌ DO NOT validate that template content exists at validation time:**
+- Workflow paths like `{{workflows/implementation/implement-tasks}}` may or may not exist during validation
+- Agent OS installation resolves these paths; validation happens before/after installation
+- File existence validation is Agent OS's job, not the subagent validator's job
+
+### What TO Do
+
+**✅ DO detect Agent OS projects and apply appropriate rules:**
+- Check for `agent-os-config.yml` or `profiles/default/` to detect Agent OS projects
+- Apply template-aware validation only for Agent OS subagents
+- Use standard subagent validation for non-Agent OS projects
+
+**✅ DO respect the install-time processing model:**
+- Understand that subagent files in Agent OS are templates, not final code
+- Final validation happens after `project-install.sh` runs (templates expanded)
+- Pre-installation validation should only check syntax, not content
+
+**✅ DO validate template syntax, not template logic:**
+- Check that `{{IF/UNLESS}}` blocks are balanced (matching ENDIF/ENDUNLESS)
+- Check that template paths are formatted correctly
+- Check that conditionals use valid condition names: `use_claude_code_subagents`, `standards_as_claude_code_skills`
+- BUT: Don't validate that workflow/standards files actually exist (Agent OS does this)
+
+**✅ DO preserve and respect Agent OS conditional structure:**
+- If a subagent has `{{UNLESS standards_as_claude_code_skills}}...{{ENDUNLESS}}`, keep it
+- If a subagent uses `{{IF use_claude_code_subagents}}`, respect both branches
+- Suggestions should not collapse these conditionals into a single path
+
+**✅ DO document Agent OS template usage in validation reports:**
+- When validating an Agent OS subagent, note: "This subagent uses Agent OS templates and will be expanded at install time"
+- Point out template directives found: workflows, standards, conditionals
+- Explain that the final prompt clarity will be determined after template expansion
+
+### Agent OS Subagent Characteristics
+
+Subagents in `/profiles/default/agents/` are templates, not standalone executablecode:
+
+**Installation-time processing** (before Claude executes):
+```
+Source: profiles/default/agents/spec-shaper.md (contains {{}} templates)
+        ↓
+        [compile_agent() processes templates]
+        ↓
+Destination: .claude/agents/spec-shaper.md (final executable subagent)
+```
+
+**Validation timing:**
+- **Pre-installation**: Don't expect workflows/standards to be included yet
+- **Post-installation**: Validate the compiled `.claude/agents/spec-shaper.md` instead
+- **Template syntax**: Can validate anytime ({{}} syntax is independent of file content)
+
+### Example: Spec-Shaper Subagent
+
+This is VALID Agent OS subagent structure:
+```yaml
+---
+name: spec-shaper
+description: Use proactively to gather detailed requirements...
+tools: Write, Read, Bash, WebFetch, Skill
+color: blue
+model: inherit
+---
+
+You are a software product requirements research specialist...
+
+{{workflows/specification/research-spec}}
+
+{{UNLESS standards_as_claude_code_skills}}
+## User Standards
+
+{{standards/*}}
+{{ENDUNLESS standards_as_claude_code_skills}}
+```
+
+**Do NOT suggest:**
+- ❌ Removing `color` field (Agent OS uses it)
+- ❌ Removing `{{workflows/...}}` and writing out the workflow manually
+- ❌ Removing `{{UNLESS standards_as_claude_code_skills}}...{{ENDUNLESS}}` block
+- ❌ Improving "prompt clarity" by inlining template content
+- ❌ Adding fallback prompt text because templates look incomplete
+
+**Do suggest:**
+- ✅ Better description with delegation trigger phrases
+- ✅ More specific tools (if some listed aren't actually used)
+- ✅ Improved error handling in the base prompt (outside templates)
+- ✅ Better integration signals for Claude's delegation
 
 ## Important Development Notes
 
